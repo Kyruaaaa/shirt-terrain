@@ -1,0 +1,1374 @@
+<meta charset="utf-8">
+<title>Shirt Terrain</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Gaegu:wght@400;700&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Layout: an all-white page. Left half: the shirt floating in empty space. Right half: answers handwritten on grid notebook paper. Single light look by design. */
+:root {
+  --paper: #FFFFFF;
+  --grid: #DCE6F0;
+  --grid-strong: #C5D4E3;
+  --ink: #23262B;
+  --pen: #2A4A8C;
+  --pencil: #8A919B;
+  --marker: #FFF0A3;
+  --cell: 26px;
+  --font-hand: "Caveat", "Bradley Hand", "Segoe Print", cursive;
+  --font-stitch: "Gaegu", "Caveat", cursive;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-hand); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100%; }
+
+.stage {
+  position: sticky; top: env(safe-area-inset-top, 0px);
+  height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  min-width: 0;
+}
+#stage { position: absolute; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+#stage canvas:active { cursor: grabbing; }
+.views {
+  position: absolute; bottom: 16px;
+  left: max(16px, env(safe-area-inset-left, 0px)); right: 16px;
+  display: flex; gap: 4px 14px; flex-wrap: wrap; align-items: center;
+}
+/* the controls are real shirt buttons; their names run round the inner ring and slowly turn */
+.views .sew {
+  position: relative; flex: none; width: 92px; height: 92px; padding: 0; border: 0; background: none; cursor: pointer;
+  border-radius: 50%;
+}
+.sew .face {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: var(--img) center / cover no-repeat;
+  filter: drop-shadow(0 3px 4px rgba(0,0,0,.22));
+  animation: bob 4.5s ease-in-out infinite alternate;
+  transition: transform .35s cubic-bezier(.3,1.6,.5,1);
+}
+#btnFlat .face { animation-delay: -1.5s; }
+#btnWash .face { animation-delay: -3s; }
+.sew .ring { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; transition: transform .35s cubic-bezier(.3,1.6,.5,1); }
+.sew text {
+  font-family: var(--font-stitch); font-weight: 700; font-size: 11.5px; letter-spacing: .4px;
+  fill: #fff; stroke: rgba(25,55,30,.8); stroke-width: 2.6px; paint-order: stroke; stroke-linejoin: round;
+}
+.sew:hover .face { animation: none; transform: rotate(-16deg) scale(1.06); }
+.sew:hover .ring { transform: scale(1.06); }
+.sew:active .face { transform: scale(.9); }
+.sew.pop .face { animation: pop .75s cubic-bezier(.3,1.4,.5,1); }
+.sew:focus-visible { outline: 2px solid var(--pen); outline-offset: 3px; }
+@keyframes bob { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
+@keyframes pop { 0% { transform: scale(.86) rotate(0); } 100% { transform: scale(1) rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sew .face { animation: none; } }
+.views .sep { width: 1px; height: 12px; background: var(--grid-strong); }
+.views .hint { font-family: var(--font-mono); font-size: 11px; color: var(--pencil); }
+.loading {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 12px; color: var(--pencil); pointer-events: none;
+}
+
+/* the answers: each question is its own piece of embroidered linen on the white page.
+   The cloth (frayed edges, weave) is painted by stitch-text.js into a canvas behind each .patch; the
+   lettering and the decorations are sewn over it as running stitches. */
+.notebook {
+  position: relative; min-width: 0;
+  /* thread colours (set from LOOK in stitch-text.js; these are only the fallbacks) */
+  --c-title: #799800; --c-heading: #9AA60E; --c-question: #2F5E33; --c-concept: #6E9A3E; --c-label: #8DB255;
+  --c-answer1: #4F8A3C; --c-answer2: #6E9A3E; --c-answer3: #3E7A3A; --word-gap: .3em;
+  background-color: var(--paper);
+  padding: calc(var(--cell) * 2) max(var(--cell), env(safe-area-inset-right, 0px)) calc(var(--cell) * 4) calc(var(--cell) * 2);
+  font-size: 24px; line-height: var(--cell);
+}
+.notebook > * { max-width: 30em; }
+.patch { position: relative; isolation: isolate; margin: 44px 0; padding: 84px 60px 76px; }
+.patch > canvas.cloth { position: absolute; left: -22px; top: -22px; width: calc(100% + 44px); height: calc(100% + 44px); z-index: -1; pointer-events: none; }
+.notebook canvas.sewn-text { position: absolute; left: -14px; top: -14px; pointer-events: none; }
+.notebook h2 { position: relative; }
+.notebook.sewn [data-sew] { color: transparent; }
+.notebook.sewn [data-sew]::selection, .notebook.sewn [data-sew] ::selection { color: transparent; background: rgba(110,154,62,.2); }
+.notebook [data-sew] { word-spacing: var(--word-gap); }
+.label, h1, h2, .concept, .meta, dt, dd { font-family: var(--font-stitch); }
+.label { --thread: var(--c-label); font-size: 17px; letter-spacing: .04em; margin: 0; }
+h1 { --thread: var(--c-title); font-weight: 700; font-size: 64px; line-height: calc(var(--cell) * 3); margin: 0; }
+.concept { --thread: var(--c-concept); margin: 0 0 var(--cell); font-size: 26px; }
+.meta { --thread: var(--c-label); display: flex; flex-wrap: wrap; gap: 0 26px; margin: 0; font-size: 20px; }
+h2 {
+  --thread: var(--c-heading); font-weight: 700; font-size: 40px; line-height: calc(var(--cell) * 2);
+  margin: calc(var(--cell) * 2) 0 0; display: inline-block; padding: 0 8px 6px 0;
+}
+dl { margin: 0; }
+dt { --thread: var(--c-question); margin: 0; font-weight: 700; }
+dd { margin: var(--cell) 0 0; }
+.patch:nth-of-type(3n+1) dd { --thread: var(--c-answer1); }
+.patch:nth-of-type(3n+2) dd { --thread: var(--c-answer2); }
+.patch:nth-of-type(3n) dd { --thread: var(--c-answer3); }
+dd ol { margin: 0; padding-left: var(--cell); }
+dd li::marker { color: var(--c-answer1); }
+dd strong { font-weight: 700; }
+
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); }
+  .stage { position: relative; top: 0; height: 72vh; min-height: 420px; }
+  .views .sew { width: 66px; height: 66px; }
+  .notebook { padding-left: max(var(--cell), env(safe-area-inset-left, 0px)); font-size: 22px; }
+  .patch { padding: 76px 38px 68px; }
+  h1 { font-size: 52px; }
+}
+</style>
+
+<main class="wrap">
+  <section class="stage" aria-label="3D model of the shirt">
+    <div id="stage">
+      <div class="loading" id="loading">Loading the shirt…</div>
+    </div>
+    <div class="views" role="group" aria-label="Shirt controls">
+      <button type="button" id="btnFold" class="sew" aria-label="Fold" style="--img: url(buttons/fold.png)"><span class="face"></span><svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><defs><path id="ring-fold" d="M50,50 m-21,0 a21,21 0 1,1 42,0 a21,21 0 1,1 -42,0"/></defs><g><text><textPath href="#ring-fold" textLength="130" lengthAdjust="spacing">FOLD · FOLD · FOLD ·</textPath></text></g></svg></button>
+      <button type="button" id="btnFlat" class="sew" aria-label="Lay flat" style="--img: url(buttons/flat.png)"><span class="face"></span><svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><defs><path id="ring-flat" d="M50,50 m-21,0 a21,21 0 1,1 42,0 a21,21 0 1,1 -42,0"/></defs><g><text><textPath href="#ring-flat" textLength="130" lengthAdjust="spacing">LAY FLAT · LAY FLAT ·</textPath></text></g></svg></button>
+      <button type="button" id="btnWash" class="sew" aria-label="Wash" style="--img: url(buttons/wash.png)"><span class="face"></span><svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><defs><path id="ring-wash" d="M50,50 m-21,0 a21,21 0 1,1 42,0 a21,21 0 1,1 -42,0"/></defs><g><text><textPath href="#ring-wash" textLength="130" lengthAdjust="spacing">WASH · WASH · WASH ·</textPath></text></g></svg></button>
+      <span class="sep" aria-hidden="true"></span>
+      <span class="hint">Interaction Assimilates into a Garden, We are all Inclusions</span>
+    </div>
+  </section>
+
+  <article class="notebook">
+    <header class="patch intro">
+    <p class="label">Core 3 · Site Project · Assignment 2_Part 1</p>
+    <h1>Shirt Terrain</h1>
+    <p class="concept">The T-Shirt is a site where grass and geography are born and sprawl, forming landscapes and maps. Cleaning is renewing and erasing.</p>
+    <p class="meta"><span>Site: a T-shirt</span><span>Oct 2026</span></p>
+    </header>
+
+    <h2>Observe</h2>
+    <dl>
+      <div class="patch">
+      <dt>Where are the edges of the site? What's inside and what's outside it?</dt>
+      <dd>The edges are the ribbed collar band, the folded sleeve hems and the bottom hem, where fabric ends and skin or air begins. Where it is no longer felt but seen.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>Who uses it? When, and for how long? Is their attention a glance, a wait, or a scroll?</dt>
+      <dd>I uses it for hours and barely looks at it. Everyone else sees it in a passing glance of about a second, long enough to read one word: LUCKY. The longest viewers are things that touch it: my skin, a rock, a washing machine.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What happens there now? How does it change across a day or a week?</dt>
+      <dd>In a day it picks up dust, air and seeds, and stretches at the shoulders. Over a week it runs a cycle: worn, marked, washed, dried, folded ; Repeat. Each wash erases most marks but pulls more threads loose, freeing.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What are its formats and specs?</dt>
+      <dd>A fitted white tee in a fine vertical rib knit, with a crew neck and short sleeves. On the chest is a hand-stitched appliqué: a duck cut from yellow gingham with a tan wing patch, a fabric beak and a yellow button eye, under the word LUCKY cut from green gingham. Every piece is tacked down with pale green cross-stitches and the edges are left raw.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>Who controls it, what are the rules, and who would you ask for permission?</dt>
+      <dd>I control it: what it says, where it goes, when it gets washed. Rules fluctuates with my preception, my tender towards it are the only permission stages.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What details repeat across the site? What's an anomaly?</dt>
+      <dd>The vertical ribs repeat across the whole shirt. The gingham grid repeats inside the duck and every letter, and the green cross-stitch repeats around every patch edge. The anomaly born from how the sun rises and falls.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What's present, and what's missing?</dt>
+      <dd>Present: body heat, smell, creases, a handmade image with a word, and raw edges already shedding threads. Missing: any record of where the shirt has been. The duck stays the same while everything around it gets marked and washed away.</dd>
+      </div>
+    </dl>
+
+    <h2>Interpret</h2>
+    <dl>
+      <div class="patch">
+      <dt>What's unique about this site?</dt>
+      <dd>It is a landscape that is born and erased every week. It moves through the world on a body and records its contact with everything it touches, and it is private (against skin) and public (seen by strangers) at once.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What can you do only at this site?</dt>
+      <dd>I can be sentient about the prescence of it or ignorant about the abscence of it.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What does the site expect from the people who use it? What would surprise them?</dt>
+      <dd>It expects to be worn, washed and ignored, and it expects its image, the lucky duck, to stay the same. A shirt that grows its own terrain around the duck and loses it again would surprise people.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What does this site share with other sites you know?</dt>
+      <dd>With a tattoo, it is on the body and seen in fragments. With a billboard, it is seen in a glance by people passing. With the granite boulders at Lincoln Woods, it carries a record of weathering by wind and water, only on a clock of days instead of ten thousand years.</dd>
+      </div>
+    </dl>
+
+    <h2>Respond</h2>
+    <dl>
+      <div class="patch">
+      <dt>How does this site relate to your work?</dt>
+      <dd>I am drawn to nature and to slow processes like growth and weathering. The shirt lets me treat the body as a weather system and the fabric as ground that weathers in hours.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>What excites you about it? What bores you?</dt>
+      <dd>The raw edges of the appliqué excite me, because they already fray and weather with every wash, like an eroding coastline. The require of myself to catalyse transformation bores me.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>Describe a hypothetical work for this site in one sentence.</dt>
+      <dd>Visualize the geography, geology, geomorphology that make this t-shirt in prescence and conversation with me.</dd>
+      </div>
+
+      <div class="patch">
+      <dt>Name 3 ways that work could take shape there.</dt>
+      <dd>
+        <ol>
+        <li><strong>Geography: a garden in conversation.</strong> A 3D twin of the shirt where each touch stitches a small wildflower into the cloth and each wash fades it, so the landscape only exists while I am in conversation with it.</li>
+        <li><strong>Geology: strata of wearing.</strong> Photograph the shirt after every wear and wash, and stack the images as layers of sediment, so a month of days reads like rock.</li>
+        <li><strong>Geomorphology: the shape of creases.</strong> Trace how the shirt folds, stretches and creases on my body, and draw those folds as a contour map of a terrain that rises and erodes each week.</li>
+        </ol>
+      </dd>
+      </div>
+    </dl>
+  </article>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { embroider } from './stitch-text.js';
+
+// The shirt is one sheet of simulated cloth (position-based dynamics): the front photo on its top
+// face, the plain back on its underside. It rests folded on an invisible table and is unfolded by
+// pinching and dragging it.
+const ASPECT = 3378 / 4096;
+const H = 2.2, W = H * ASPECT;
+const NX = 61, NY = 74, N = NX * NY;
+const HX = W / (NX - 1), HY = H / (NY - 1);
+const T = 0.024;             // cloth thickness: how far stacked layers stay apart
+const FLOOR = T * 0.5;
+const GRAVITY = -28;
+const SUB = 4, ITER = 6, DT = 1 / 60;
+const DAMP = 0.99, SETTLE_DAMP = 0.9, FLOOR_FRICTION = 0.4, LAYER_FRICTION = 0.25;
+const CONTACT_DAMP = 0.75;
+let damping = DAMP;   // raised to SETTLE_DAMP once the cloth is nearly still, so it comes to rest without wobbling
+const FOLD_X = 0.36;          // side folds, measured from the centre line
+const GAP = T * 1.2;         // spacing of the layers in the folded pose
+const GRAB_R = 0.08, LIFT = 0.14;
+const NEAR = 4;               // points within this many grid steps along the fabric don't collide with each other
+
+const box = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0xffffff, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+box.prepend(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 50);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xe4e7ec, 2.3));
+const key = new THREE.DirectionalLight(0xffffff, 1.7);
+key.position.set(-1.2, 3.2, 1.4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -1.8, right: 1.8, top: 1.8, bottom: -1.8, near: 0.5, far: 8 });
+key.shadow.bias = -0.0006;
+key.shadow.normalBias = 0.004;
+key.shadow.radius = 5;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.7);
+fill.position.set(1.5, 1.0, -1.5);
+scene.add(fill);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.ShadowMaterial({ opacity: 0.13 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ---------- cloth state ----------
+const idx = (i, j) => j * NX + i;
+const p = new Float32Array(N * 3), q = new Float32Array(N * 3);
+const w = new Float32Array(N);              // inverse mass, 0 = not cloth
+const flatX = new Float32Array(N), flatY = new Float32Array(N);
+let active = new Int32Array(0);
+let conA, conB, conRest, conK, triIdx = new Int32Array(0);
+let alphaData = null, AW = 0, AH = 0;
+
+for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+  const k = idx(i, j);
+  flatX[k] = (i / (NX - 1) - 0.5) * W;
+  flatY[k] = (j / (NY - 1) - 0.5) * H;
+}
+
+function alphaAt(u, v) {
+  const x = Math.min(AW - 1, Math.max(0, Math.round(u * (AW - 1))));
+  const y = Math.min(AH - 1, Math.max(0, Math.round((1 - v) * (AH - 1))));
+  return alphaData[(y * AW + x) * 4] / 255;
+}
+
+function buildCloth() {
+  const cellOn = new Uint8Array((NX - 1) * (NY - 1));
+  for (let j = 0; j < NY - 1; j++) for (let i = 0; i < NX - 1; i++) {
+    let on = 0;
+    for (let a = 0; a <= 4 && !on; a++) for (let b = 0; b <= 4 && !on; b++) {
+      if (alphaAt((i + a / 4) / (NX - 1), (j + b / 4) / (NY - 1)) > 0.3) on = 1;
+    }
+    cellOn[j * (NX - 1) + i] = on;
+  }
+  const edges = new Map();
+  const tris = [];
+  const addCon = (a, b, k) => {
+    const key = a < b ? a * N + b : b * N + a;
+    if (edges.has(key)) return;
+    edges.set(key, [a, b, Math.hypot(flatX[a] - flatX[b], flatY[a] - flatY[b]), k]);
+  };
+  for (let j = 0; j < NY - 1; j++) for (let i = 0; i < NX - 1; i++) {
+    if (!cellOn[j * (NX - 1) + i]) continue;
+    const a = idx(i, j), b = idx(i + 1, j), c = idx(i, j + 1), d = idx(i + 1, j + 1);
+    w[a] = w[b] = w[c] = w[d] = 1;
+    addCon(a, b, 1); addCon(c, d, 1); addCon(a, c, 1); addCon(b, d, 1);
+    addCon(a, d, 0.9); addCon(b, c, 0.9);
+    tris.push(a, b, c, b, d, c);
+  }
+  const struct = (a, b) => edges.has(a < b ? a * N + b : b * N + a);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const a = idx(i, j);
+    if (i + 2 < NX && struct(a, idx(i + 1, j)) && struct(idx(i + 1, j), idx(i + 2, j))) addCon(a, idx(i + 2, j), 0.04);
+    if (j + 2 < NY && struct(a, idx(i, j + 1)) && struct(idx(i, j + 1), idx(i, j + 2))) addCon(a, idx(i, j + 2), 0.04);
+  }
+  const list = [...edges.values()];
+  conA = new Int32Array(list.map((c) => c[0]));
+  conB = new Int32Array(list.map((c) => c[1]));
+  conRest = new Float32Array(list.map((c) => c[2]));
+  conK = new Float32Array(list.map((c) => c[3]));
+  const act = [];
+  for (let k = 0; k < N; k++) if (w[k] > 0) act.push(k);
+  active = new Int32Array(act);
+  return tris;
+}
+
+// A retail fold: the bottom half tucked under first, then both sides tucked under along vertical
+// lines, so the duck sits on top. Each flap turns round its crease by an angle (0 = flat, PI = folded);
+// the crease bends round a radius so stacked layers stay one thickness apart and never cross.
+function wrapTo(d, r, theta) {
+  const arc = r * theta;
+  if (d <= arc) { const f = d / r; return [r * Math.sin(f), r * Math.cos(f) - r]; }
+  const L = d - arc;
+  return [r * Math.sin(theta) + L * Math.cos(theta), r * Math.cos(theta) - r - L * Math.sin(theta)];
+}
+// Each later fold turns the whole stack round one axis, so its layers wrap in concentric arcs.
+function foldRaw(X, Y, a1, a2, a3, out) {
+  let x = X, y = 0, Yv = Y;
+  if (Y < 0) { const [o, h] = wrapTo(-Y, GAP * 0.5, a3); Yv = -o; y = h; }
+  if (X < -FOLD_X) { const [o, h] = wrapTo(-FOLD_X - X, y + 1.5 * GAP, a1); x = -FOLD_X - o; y += h; }
+  else if (X > FOLD_X) { const [o, h] = wrapTo(X - FOLD_X, y + 2.5 * GAP, a2); x = FOLD_X + o; y += h; }
+  out[0] = x; out[1] = y; out[2] = -Yv;
+}
+// fill dst with the pose for the given crease angles, resting on the table
+function foldInto(dst, a1, a2, a3) {
+  const tmp = [0, 0, 0];
+  let minY = Infinity;
+  for (let k = 0; k < N; k++) {
+    foldRaw(flatX[k], flatY[k], a1, a2, a3, tmp);
+    dst[k * 3] = tmp[0]; dst[k * 3 + 1] = tmp[1]; dst[k * 3 + 2] = tmp[2] + 0.55 * (a3 / Math.PI);
+    if (w[k] > 0 && tmp[1] < minY) minY = tmp[1];
+  }
+  const lift = FLOOR - minY;
+  for (let k = 0; k < N; k++) dst[k * 3 + 1] += lift;
+}
+
+// ---------- simulation ----------
+const TABLE = 1 << 15;
+const cellStart = new Int32Array(TABLE + 1);
+const cellItems = new Int32Array(N);
+const hashCell = (x, y, z) => (Math.imul(x, 92837111) ^ Math.imul(y, 689287499) ^ Math.imul(z, 283923481)) & (TABLE - 1);
+
+// Point-against-triangle collisions. Each point remembers which side of a nearby triangle it was on
+// at the previous step; if it is now closer than the thickness, or has slipped through, it is pushed
+// back out on its own side. This closes the gaps between points that layers could pass through.
+// points touching another layer this step; they lose speed next step (kills stacking jitter)
+const touching = new Uint8Array(N);
+const TCS = Math.max(W / (NX - 1), H / (NY - 1)) * 0.8 + 0.024;   // = the reach of a triangle
+const triStart = new Int32Array(TABLE + 1);
+let triItems = new Int32Array(0), triCx = new Float32Array(0), triN = new Float32Array(0), triQN = new Float32Array(0);
+function triCollide() {
+  const nt = triIdx.length / 3, inv = 1 / TCS;
+  if (triCx.length !== nt * 3) { triCx = new Float32Array(nt * 3); triN = new Float32Array(nt * 3); triQN = new Float32Array(nt * 3); triItems = new Int32Array(nt); }
+  triStart.fill(0);
+  for (let t = 0; t < nt; t++) {
+    const a = triIdx[t * 3] * 3, b = triIdx[t * 3 + 1] * 3, c = triIdx[t * 3 + 2] * 3;
+    const x = (p[a] + p[b] + p[c]) / 3, y = (p[a + 1] + p[b + 1] + p[c + 1]) / 3, z = (p[a + 2] + p[b + 2] + p[c + 2]) / 3;
+    triCx[t * 3] = x; triCx[t * 3 + 1] = y; triCx[t * 3 + 2] = z;
+    // unit normal now, and the (unnormalised) normal one step ago for the side test
+    let e1x = p[b] - p[a], e1y = p[b + 1] - p[a + 1], e1z = p[b + 2] - p[a + 2];
+    let e2x = p[c] - p[a], e2y = p[c + 1] - p[a + 1], e2z = p[c + 2] - p[a + 2];
+    let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+    const nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    triN[t * 3] = nx / nl; triN[t * 3 + 1] = ny / nl; triN[t * 3 + 2] = nz / nl;
+    e1x = q[b] - q[a]; e1y = q[b + 1] - q[a + 1]; e1z = q[b + 2] - q[a + 2];
+    e2x = q[c] - q[a]; e2y = q[c + 1] - q[a + 1]; e2z = q[c + 2] - q[a + 2];
+    triQN[t * 3] = e1y * e2z - e1z * e2y; triQN[t * 3 + 1] = e1z * e2x - e1x * e2z; triQN[t * 3 + 2] = e1x * e2y - e1y * e2x;
+    triStart[hashCell(Math.floor(x * inv), Math.floor(y * inv), Math.floor(z * inv))]++;
+  }
+  for (let h = 1; h <= TABLE; h++) triStart[h] += triStart[h - 1];
+  for (let t = 0; t < nt; t++) {
+    triItems[--triStart[hashCell(Math.floor(triCx[t * 3] * inv), Math.floor(triCx[t * 3 + 1] * inv), Math.floor(triCx[t * 3 + 2] * inv))]] = t;
+  }
+  const reach2 = TCS * TCS;
+  for (let n = 0; n < active.length; n++) {
+    const k = active[n], K = k * 3;
+    const px = p[K], py = p[K + 1], pz = p[K + 2];
+    // the 2x2x2 block of cells nearest the point covers everything within one cell size
+    const fx = px * inv - 0.5, fy = py * inv - 0.5, fz = pz * inv - 0.5;
+    const cx = Math.floor(fx), cy = Math.floor(fy), cz = Math.floor(fz);
+    const ki = k % NX, kj = (k / NX) | 0;
+    for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 1; dy++) for (let dz = 0; dz <= 1; dz++) {
+      const h = hashCell(cx + dx, cy + dy, cz + dz);
+      for (let s2 = triStart[h], e = triStart[h + 1]; s2 < e; s2++) {
+        const t = triItems[s2];
+        const ox = p[K] - triCx[t * 3], oy = p[K + 1] - triCx[t * 3 + 1], oz = p[K + 2] - triCx[t * 3 + 2];
+        if (ox * ox + oy * oy + oz * oz > reach2) continue;
+        const ia = triIdx[t * 3], ib = triIdx[t * 3 + 1], ic = triIdx[t * 3 + 2];
+        if (Math.abs(ki - ia % NX) <= NEAR && Math.abs(kj - ((ia / NX) | 0)) <= NEAR) continue;
+        const A = ia * 3, B = ib * 3, C = ic * 3;
+        const nx = triN[t * 3], ny = triN[t * 3 + 1], nz = triN[t * 3 + 2];
+        const rx = p[K] - p[A], ry = p[K + 1] - p[A + 1], rz = p[K + 2] - p[A + 2];
+        const dist = rx * nx + ry * ny + rz * nz;
+        if (dist > 2 * T || dist < -2 * T) continue;
+        const e1x = p[B] - p[A], e1y = p[B + 1] - p[A + 1], e1z = p[B + 2] - p[A + 2];
+        const e2x = p[C] - p[A], e2y = p[C + 1] - p[A + 1], e2z = p[C + 2] - p[A + 2];
+        const d00 = e1x * e1x + e1y * e1y + e1z * e1z, d01 = e1x * e2x + e1y * e2y + e1z * e2z, d11 = e2x * e2x + e2y * e2y + e2z * e2z;
+        const d20 = rx * e1x + ry * e1y + rz * e1z, d21 = rx * e2x + ry * e2y + rz * e2z;
+        const den = d00 * d11 - d01 * d01;
+        if (den < 1e-14) continue;
+        const bv = (d11 * d20 - d01 * d21) / den, bw = (d00 * d21 - d01 * d20) / den, bu = 1 - bv - bw;
+        if (bu < -0.02 || bv < -0.02 || bw < -0.02) continue;
+        // which side was the point on one step ago?
+        const qd = (q[K] - q[A]) * triQN[t * 3] + (q[K + 1] - q[A + 1]) * triQN[t * 3 + 1] + (q[K + 2] - q[A + 2]) * triQN[t * 3 + 2];
+        const side = qd >= 0 ? 1 : -1;
+        if (side * dist >= T) continue;
+        let lam = (side * T - dist) / (1 + bu * bu + bv * bv + bw * bw);
+        // gentle pushes only: a point is eased back over a few steps instead of being flung
+        if (lam > T * 0.25) lam = T * 0.25; else if (lam < -T * 0.25) lam = -T * 0.25;
+        p[K] += nx * lam; p[K + 1] += ny * lam; p[K + 2] += nz * lam;
+        p[A] -= nx * lam * bu; p[A + 1] -= ny * lam * bu; p[A + 2] -= nz * lam * bu;
+        p[B] -= nx * lam * bv; p[B + 1] -= ny * lam * bv; p[B + 2] -= nz * lam * bv;
+        p[C] -= nx * lam * bw; p[C + 1] -= ny * lam * bw; p[C + 2] -= nz * lam * bw;
+        touching[k] = touching[ia] = touching[ib] = touching[ic] = 1;
+        // friction between touching layers: slow the point's sliding across the fabric under it
+        let vx = (p[K] - q[K]) - ((p[A] - q[A]) * bu + (p[B] - q[B]) * bv + (p[C] - q[C]) * bw);
+        let vy = (p[K + 1] - q[K + 1]) - ((p[A + 1] - q[A + 1]) * bu + (p[B + 1] - q[B + 1]) * bv + (p[C + 1] - q[C + 1]) * bw);
+        let vz = (p[K + 2] - q[K + 2]) - ((p[A + 2] - q[A + 2]) * bu + (p[B + 2] - q[B + 2]) * bv + (p[C + 2] - q[C + 2]) * bw);
+        const vn = vx * nx + vy * ny + vz * nz;
+        vx -= vn * nx; vy -= vn * ny; vz -= vn * nz;
+        q[K] += vx * LAYER_FRICTION; q[K + 1] += vy * LAYER_FRICTION; q[K + 2] += vz * LAYER_FRICTION;
+      }
+    }
+  }
+}
+
+const grab = { on: false, ids: [], wts: [], off: [], target: new THREE.Vector3(), anchor: new THREE.Vector3(), lift: 0, centre: 0 };
+
+// While a point is held, the cloth hangs from it without stretching: every point is kept within
+// its flat-shirt distance of the pinch, so lifting a corner carries the whole shirt.
+function tether() {
+  const c = grab.centre, cx = p[c * 3], cy = p[c * 3 + 1], cz = p[c * 3 + 2];
+  for (let n = 0; n < active.length; n++) {
+    const k = active[n];
+    if (k === c) continue;
+    const L = Math.hypot(flatX[k] - flatX[c], flatY[k] - flatY[c]) * 1.04;
+    const dx = p[k * 3] - cx, dy = p[k * 3 + 1] - cy, dz = p[k * 3 + 2] - cz;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (d <= L) continue;
+    const f = (d - L) / d;
+    p[k * 3] -= dx * f; p[k * 3 + 1] -= dy * f; p[k * 3 + 2] -= dz * f;
+  }
+}
+
+function substep(h) {
+  const g = GRAVITY * h * h;
+  const vmax = T * 0.5;
+  for (let n = 0; n < active.length; n++) {
+    const k = active[n] * 3;
+    const dmp = touching[active[n]] ? damping * CONTACT_DAMP : damping;
+    touching[active[n]] = 0;
+    let vx = (p[k] - q[k]) * dmp, vy = (p[k + 1] - q[k + 1]) * dmp + g, vz = (p[k + 2] - q[k + 2]) * dmp;
+    // no point may move more than a fraction of the thickness per step, so layers can't tunnel
+    const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (v > vmax) { const f = vmax / v; vx *= f; vy *= f; vz *= f; }
+    q[k] = p[k]; q[k + 1] = p[k + 1]; q[k + 2] = p[k + 2];
+    p[k] += vx; p[k + 1] += vy; p[k + 2] += vz;
+  }
+  for (let it = 0; it < ITER; it++) {
+    for (let c = 0; c < conA.length; c++) {
+      const a = conA[c] * 3, b = conB[c] * 3;
+      const dx = p[b] - p[a], dy = p[b + 1] - p[a + 1], dz = p[b + 2] - p[a + 2];
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (d < 1e-9) continue;
+      let s = (d - conRest[c]) / d * 0.5 * conK[c];
+      if (s < 0 && conK[c] < 0.1) s *= 0.1;
+      p[a] += dx * s; p[a + 1] += dy * s; p[a + 2] += dz * s;
+      p[b] -= dx * s; p[b + 1] -= dy * s; p[b + 2] -= dz * s;
+    }
+    if (grab.on) tether();
+  }
+  if (grab.on) {
+    const lim = T * 0.45;
+    for (let n = 0; n < grab.ids.length; n++) {
+      const k = grab.ids[n] * 3, wt = grab.wts[n], o = grab.off[n];
+      let dx = (grab.target.x + o[0] - p[k]) * wt, dy = (grab.target.y + o[1] - p[k + 1]) * wt, dz = (grab.target.z + o[2] - p[k + 2]) * wt;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (d > lim) { const f = lim / d; dx *= f; dy *= f; dz *= f; }
+      p[k] += dx; p[k + 1] += dy; p[k + 2] += dz;
+    }
+  }
+  triCollide();
+  for (let n = 0; n < active.length; n++) {
+    const k = active[n] * 3;
+    if (p[k + 1] < FLOOR) {
+      p[k + 1] = FLOOR;
+      q[k + 1] = FLOOR;   // lands dead, no bounce off the table
+      p[k] -= (p[k] - q[k]) * FLOOR_FRICTION;
+      p[k + 2] -= (p[k + 2] - q[k + 2]) * FLOOR_FRICTION;
+    }
+  }
+}
+
+// ---------- rendering ----------
+const geo = new THREE.BufferGeometry();
+const posAttr = new THREE.BufferAttribute(p, 3);
+posAttr.setUsage(THREE.DynamicDrawUsage);
+geo.setAttribute('position', posAttr);
+const uvs = new Float32Array(N * 2);
+for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+  uvs[idx(i, j) * 2] = i / (NX - 1);
+  uvs[idx(i, j) * 2 + 1] = j / (NY - 1);
+}
+geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+function refreshGeometry() {
+  posAttr.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+}
+
+const tl = new THREE.TextureLoader();
+const loadTex = (src, srgb) => new Promise((res, rej) => tl.load(src, (t) => {
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  res(t);
+}, undefined, rej));
+const loadImage = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+
+let front, back;
+const fabric = { roughness: 0.88, metalness: 0, sheen: 0.7, sheenRoughness: 0.6, sheenColor: new THREE.Color(0xffffff), alphaTest: 0.5 };
+
+// ---------- the garden ----------
+// Wildflowers are embroidered thread by thread into a transparent canvas laid over the front photo. Plant
+// coordinates live in a 600-wide "virtual" copy of the photo; u = x / VW, v = 1 - y / VH.
+// Every plant is a list of stitches, each with the moment it gets sewn, so plants grow by being stitched.
+const VW = 600, VH = 600 / ASPECT, CW = 1536, CH = Math.round(CW / ASPECT);
+const MAX_PLANTS = 40, SPROUT_DELAY = 1.5, TEX_STEP = 1 / 24;
+const FURROWS = false;   // true: new folds in the cloth sprout a row of plants along the crease
+const PLANT_SCALE = 1.3, THREAD_W = 1.7;   // overall plant size, and thread thickness
+const BUSH_HEIGHT = 0.28, BUSH_SPREAD = 1.8, BUSH_STEMS = [2, 3];   // short stems that fan out, a few plants per clump
+const rnd = Math.random, side = () => (rnd() < 0.5 ? -1 : 1), choose = (a) => a[rnd() * a.length | 0];
+const mkCanvas = () => { const c = document.createElement('canvas'); c.width = CW; c.height = CH; return c; };
+const stitchCanvas = mkCanvas(), bakeCanvas = mkCanvas(), ghostCanvas = mkCanvas(), patternCut = mkCanvas();
+const sctx = stitchCanvas.getContext('2d'), bctx = bakeCanvas.getContext('2d'), gctx = ghostCanvas.getContext('2d');
+const stitchTex = new THREE.CanvasTexture(stitchCanvas);
+stitchTex.colorSpace = THREE.SRGBColorSpace;
+let plants = [], gclock = 0, washing = null, gardenDirty = true, texWait = 0;
+const onShirt = (x, y) => x > 0 && y > 0 && x < VW && y < VH && alphaAt(x / VW, 1 - y / VH) > 0.5;
+// the duck and LUCKY appliqué stay untouched: no seeds land there, and any thread crossing it is cut away
+let patternData = null, PW = 0, PH = 0;
+const onPattern = (x, y) => {
+  if (!patternData) return false;
+  const i = Math.round(x / VW * (PW - 1)), j = Math.round(y / VH * (PH - 1));
+  return i >= 0 && j >= 0 && i < PW && j < PH && patternData[(j * PW + i) * 4] > 128;
+};
+function preparePatternCut(img) {
+  const c = patternCut.getContext('2d');
+  c.drawImage(img, 0, 0, CW, CH);
+  const d = c.getImageData(0, 0, CW, CH);
+  for (let k = 0; k < d.data.length; k += 4) { d.data[k + 3] = d.data[k]; d.data[k] = d.data[k + 1] = d.data[k + 2] = 0; }
+  c.putImageData(d, 0, 0);
+}
+
+// ---- thread palette (after the reference embroidery: soft greens, teal leaves, clear flower colours) ----
+const STEM = ['#6E9A3E', '#5E8C3A', '#7FA04A', '#88AA4E'];
+const LEAF = ['#2E7D60', '#3B8B68', '#2F6F5A', '#4E9A62'];
+const lighter = {};
+const hi = (col) => lighter[col] || (lighter[col] = (() => {
+  const n = parseInt(col.slice(1), 16), m = (x) => Math.round(x + (255 - x) * 0.5);
+  return `rgb(${m(n >> 16)},${m((n >> 8) & 255)},${m(n & 255)})`;
+})());
+
+// ---- stitch primitives: [kind, time, ...]. 'l' straight stitch, 'o' lazy-daisy loop, 'k' French knot ----
+function addLine(P, t, x1, y1, x2, y2, col, w) { P.prims.push(['l', t, x1, y1, x2, y2, col, w]); }
+function addLoop(P, t, x, y, a, len, col, w) { P.prims.push(['o', t, x, y, a, len, col, w]); }
+function addKnot(P, t, x, y, r, col) { P.prims.push(['k', t, x, y, r, col]); }
+
+// stem stitch: short slanted stitches that overlap along the line
+function stem(P, pts, t0, t1, col, w) {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  const step = w * 3.2;
+  let run = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1], [bx, by] = pts[i], L = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / L, dy = (by - ay) / L;
+    const nx = -dy * w * 0.3, ny = dx * w * 0.3;
+    for (let d = 0; d < L; d += step) {
+      const e = Math.min(L, d + step * 1.45);
+      addLine(P, t0 + (t1 - t0) * (run + d) / total, ax + dx * d + nx, ay + dy * d + ny, ax + dx * e - nx, ay + dy * e - ny, col, w);
+    }
+    run += L;
+  }
+}
+// fishbone leaf: threads from alternate edges slanting into the midrib, sewn from the tip down
+function leaf(P, x, y, a, len, wd, col, t0, dur) {
+  const ca = Math.cos(a), sa = Math.sin(a), X = (u, v) => x + ca * u - sa * v, Y = (u, v) => y + sa * u + ca * v;
+  const n = Math.max(4, Math.round(len / 1.1));
+  for (let k = 0; k < n; k++) {
+    const u = len * (1 - (k + 0.5) / n), s = k % 2 ? 1 : -1, e = wd * Math.pow(Math.sin(Math.PI * Math.max(0.04, u / len)), 0.75);
+    const mu = Math.min(len, u + len * 0.16);
+    addLine(P, t0 + dur * k / n, X(u, s * e), Y(u, s * e), X(mu, 0), Y(mu, 0), col, 0.55);
+  }
+}
+function curve(x, y, a, len, n, bend, wob) {
+  // bush flowers: every stem is short, and leans further out from upright
+  len *= BUSH_HEIGHT;
+  a = UP + Math.max(-1.35, Math.min(1.35, (a - UP) * BUSH_SPREAD));
+  const pts = [[x, y]];
+  for (let i = 0; i < n; i++) { a += bend + (rnd() - 0.5) * wob; x += Math.cos(a) * len / n; y += Math.sin(a) * len / n; pts.push([x, y]); }
+  return pts;
+}
+const dirAt = (pts, i) => { i = Math.max(1, i); return Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0]); };
+const at = (pts, f) => pts[Math.min(pts.length - 1, Math.round(f * (pts.length - 1)))];
+const UP = -Math.PI / 2;
+
+// ---- flower heads ----
+function cloverHead(P, x, y, r, t0) {   // red clover: a dome of straight stitches fanning up from the base
+  const cols = ['#D9568A', '#EE8DB4', '#C2416F', '#E57AA4'];
+  for (let k = 0; k < 34; k++) {
+    const a = UP + (rnd() - 0.5) * 2.6, L = r * (0.75 + rnd() * 0.55), bx = x + (rnd() - 0.5) * r * 0.4, by = y + r * 0.45;
+    addLine(P, t0 + k * 0.035, bx + Math.cos(a) * L * 0.25, by + Math.sin(a) * L * 0.25, bx + Math.cos(a) * L, by + Math.sin(a) * L * 1.05, choose(cols), 0.6);
+  }
+  addLine(P, t0, x - r * 0.35, y + r * 0.55, x + r * 0.35, y + r * 0.55, '#3B8B68', 0.6);
+}
+function lazyFlower(P, x, y, r, n, col, eye, t0, w = 0.65) {   // petals of lazy-daisy loops around a knot
+  const a0 = rnd() * Math.PI;
+  for (let k = 0; k < n; k++) addLoop(P, t0 + k * 0.08, x, y, a0 + k * 2 * Math.PI / n, r, col, w);
+  addKnot(P, t0 + n * 0.08, x, y, Math.max(0.9, r * 0.22), eye);
+}
+function daisyHead(P, x, y, r, t0) {
+  lazyFlower(P, x, y, r, 11, '#FBF8F0', '#F2C935', t0);
+  for (let k = 0; k < 4; k++) addKnot(P, t0 + 1 + k * 0.05, x + (rnd() - 0.5) * r * 0.35, y + (rnd() - 0.5) * r * 0.35, r * 0.14, k % 2 ? '#F2C935' : '#E8B022');
+}
+function starHead(P, x, y, r, col, t0) {   // speedwell: five doubled straight stitches and a pink centre
+  const a0 = rnd() * Math.PI;
+  for (let k = 0; k < 5; k++) {
+    const a = a0 + k * 2 * Math.PI / 5, ca = Math.cos(a), sa = Math.sin(a);
+    for (const o of [-0.45, 0.45]) addLine(P, t0 + k * 0.07, x + ca * r * 0.25 - sa * o, y + sa * r * 0.25 + ca * o, x + ca * r - sa * o * 0.6, y + sa * r + ca * o * 0.6, col, 0.6);
+  }
+  addKnot(P, t0 + 0.4, x, y, 0.9, '#E07AA8');
+}
+function buttercupHead(P, x, y, r, t0) {   // five tiny satin petals
+  const a0 = rnd() * Math.PI;
+  for (let k = 0; k < 5; k++) {
+    const a = a0 + k * 2 * Math.PI / 5;
+    for (const da of [-0.32, 0, 0.32]) addLine(P, t0 + k * 0.06, x, y, x + Math.cos(a + da) * r, y + Math.sin(a + da) * r, k % 2 ? '#F2C935' : '#F5D24A', 0.6);
+  }
+  addKnot(P, t0 + 0.35, x, y, 0.8, '#C99A1C');
+}
+function hawkHead(P, x, y, r, t0) {   // orange hawkweed: a ragged ring of straight stitches
+  for (let k = 0; k < 26; k++) {
+    const a = (k / 26) * 2 * Math.PI + rnd() * 0.2, L = r * (0.75 + rnd() * 0.3);
+    addLine(P, t0 + k * 0.03, x + Math.cos(a) * r * 0.25, y + Math.sin(a) * r * 0.25, x + Math.cos(a) * L, y + Math.sin(a) * L, k % 3 ? '#F07F2E' : '#E2662A', 0.6);
+  }
+  addKnot(P, t0 + 0.8, x, y, r * 0.22, '#D9561E');
+}
+function campionHead(P, x, y, a, t0) {   // white campion: striped tan bladder, white petals at its mouth
+  leaf(P, x, y, a, 7, 2.6, '#C9B79A', t0, 0.5);
+  addLine(P, t0 + 0.5, x, y, x + Math.cos(a) * 6.5, y + Math.sin(a) * 6.5, '#9E8466', 0.45);
+  const tx = x + Math.cos(a) * 7.5, ty = y + Math.sin(a) * 7.5;
+  for (let k = -2; k <= 2; k++) addLoop(P, t0 + 0.6 + (k + 2) * 0.07, tx, ty, a + k * 0.45, 3.6, '#FBF8F0', 0.6);
+}
+
+// ---- species ----
+const SPECIES = {
+  clover(x, y, P) {
+    const pts = curve(x, y, UP + (rnd() - 0.5) * 0.5, 55 + rnd() * 30, 8, (rnd() - 0.5) * 0.05, 0.08), col = choose(STEM);
+    stem(P, pts, 0, 2.2, col, 0.7);
+    for (const f of [0.3, 0.55]) {
+      const [px, py] = at(pts, f), s = side(), pe = curve(px, py, dirAt(pts, 3) + s * 0.9, 7 + rnd() * 4, 3, 0, 0.1);
+      stem(P, pe, 2.2 * f, 2.2 * f + 0.4, col, 0.5);
+      const [lx, ly] = pe[3], a0 = rnd() * Math.PI;
+      for (let l = 0; l < 3; l++) leaf(P, lx, ly, a0 + l * 2.094, 6 + rnd() * 2, 2.4, choose(LEAF), 2.2 * f + 0.4 + l * 0.2, 0.5);
+    }
+    const [hx, hy] = pts[8];
+    cloverHead(P, hx, hy - 6, 7 + rnd() * 3, 2.2);
+  },
+  lilac(x, y, P) {   // cuckooflower: tall stem, narrow leaves, a spire of small lilac flowers
+    const pts = curve(x, y, UP + (rnd() - 0.5) * 0.35, 110 + rnd() * 50, 12, (rnd() - 0.5) * 0.03, 0.05), col = choose(STEM);
+    stem(P, pts, 0, 2.6, col, 0.7);
+    for (const f of [0.18, 0.32, 0.46, 0.6]) {
+      const [lx, ly] = at(pts, f);
+      leaf(P, lx, ly, dirAt(pts, 4) + side() * (0.45 + rnd() * 0.2), 12 + rnd() * 8, 1.6, choose(LEAF), 2.6 * f, 0.6);
+    }
+    const n = 7 + (rnd() * 4 | 0), shade = choose(['#C9A6DA', '#D7B4E6', '#BE98D4']);
+    for (let k = 0; k < n; k++) {
+      const f = 0.76 + 0.24 * k / n, [sx, sy] = at(pts, f), s = k % 2 ? 1 : -1, off = (1 - k / n) * 7 + 2;
+      const fx = sx + s * off, fy = sy - 2;
+      addLine(P, 2.4 + k * 0.12, sx, sy, fx, fy, col, 0.45);
+      lazyFlower(P, fx, fy, 3.2 + (1 - k / n) * 1.6, 5, shade, '#8A5FA8', 2.5 + k * 0.12, 0.6);
+    }
+  },
+  buttercup(x, y, P) {
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.4, 70 + rnd() * 30, 8, (rnd() - 0.5) * 0.06, 0.1);
+    stem(P, pts, 0, 2, col, 0.55);
+    buttercupHead(P, pts[8][0], pts[8][1], 3.2, 2.1);
+    for (const f of [0.45, 0.65]) {
+      if (rnd() < 0.35) continue;
+      const [bx, by] = at(pts, f), b = curve(bx, by, dirAt(pts, 4) + side() * 0.6, 22 + rnd() * 14, 4, 0, 0.1);
+      stem(P, b, 2 * f, 2 * f + 0.9, col, 0.5);
+      buttercupHead(P, b[4][0], b[4][1], 2.6, 2 * f + 1);
+    }
+    leaf(P, x, y - 6, UP + side() * 0.9, 9, 2.2, choose(LEAF), 0.3, 0.6);
+  },
+  speedwell(x, y, P) {
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.5, 30 + rnd() * 25, 5, (rnd() - 0.5) * 0.08, 0.1);
+    stem(P, pts, 0, 1.4, col, 0.5);
+    leaf(P, pts[2][0], pts[2][1], dirAt(pts, 2) + side() * 0.8, 6, 1.8, choose(LEAF), 0.6, 0.4);
+    starHead(P, pts[5][0], pts[5][1], 4.2, choose(['#7D8FE3', '#8E9CEB', '#6E7FD6']), 1.5);
+  },
+  grass(x, y, P) {   // a few blades of stem stitch, one carrying a timothy seed head
+    const n = 3 + (rnd() * 3 | 0);
+    for (let b = 0; b < n; b++) {
+      const pts = curve(x + (rnd() - 0.5) * 6, y, UP + (rnd() - 0.5) * 0.8, 35 + rnd() * 60, 7, (rnd() - 0.5) * 0.06, 0.03);
+      const t0 = rnd() * 0.5;
+      stem(P, pts, t0, t0 + 1.8, choose(STEM), 0.5);
+      if (b === 0) leaf(P, pts[7][0], pts[7][1], dirAt(pts, 7), 12, 1.4, '#A3BC6A', t0 + 1.8, 0.6);
+    }
+  },
+  panicle(x, y, P) {   // wild grass: fine branches tipped with tiny pale knots
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.3, 90 + rnd() * 40, 10, (rnd() - 0.5) * 0.04, 0.05);
+    stem(P, pts, 0, 2.2, col, 0.55);
+    for (let k = 0; k < 9; k++) {
+      const f = 0.55 + 0.45 * k / 9, [bx, by] = at(pts, f), s = k % 2 ? 1 : -1;
+      const b = curve(bx, by, UP + s * (0.6 + rnd() * 0.3), 8 + rnd() * 8 * (1 - k / 9), 3, -s * 0.12, 0.05);
+      stem(P, b, 2.2 * f, 2.2 * f + 0.4, col, 0.4);
+      for (const q of [b[2], b[3]]) addKnot(P, 2.2 * f + 0.5, q[0], q[1], 0.75, choose(['#D6D97A', '#C9D46A', '#E2DE8A']));
+    }
+  },
+  campion(x, y, P) {
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.3, 80 + rnd() * 30, 9, (rnd() - 0.5) * 0.04, 0.05);
+    stem(P, pts, 0, 2.2, col, 0.55);
+    campionHead(P, pts[9][0], pts[9][1], dirAt(pts, 9), 2.2);
+    for (const f of [0.55, 0.72]) {
+      const [bx, by] = at(pts, f), s = side(), b = curve(bx, by, dirAt(pts, 5) + s * 0.7, 18 + rnd() * 10, 4, -s * 0.08, 0.05);
+      stem(P, b, 2.2 * f, 2.2 * f + 0.8, col, 0.5);
+      campionHead(P, b[4][0], b[4][1], dirAt(b, 4), 2.2 * f + 0.8);
+      addLine(P, 2.2 * f, bx, by, bx + s * 4, by + 2, choose(LEAF), 0.55);
+    }
+  },
+  vetch(x, y, P) {   // tufted vetch: pinnate leaves and a spike of purple loops
+    const col = choose(STEM), s0 = side(), pts = curve(x, y, UP + s0 * 0.3, 55 + rnd() * 25, 8, -s0 * 0.04, 0.05);
+    stem(P, pts, 0, 2, col, 0.55);
+    for (let i = 2; i < 8; i++) for (const s of [-1, 1]) leaf(P, pts[i][0], pts[i][1], dirAt(pts, i) + s * 1.1, 4.5, 1.2, choose(LEAF), 2 * i / 8 + 0.1, 0.25);
+    const [sx, sy] = at(pts, 0.5), sp = curve(sx, sy, dirAt(pts, 4) - s0 * 0.6, 16, 6, 0, 0.05);
+    stem(P, sp, 1.2, 1.8, col, 0.45);
+    for (let k = 1; k <= 6; k++) addLoop(P, 1.9 + k * 0.1, sp[k][0], sp[k][1], dirAt(sp, k) + s0 * 1.9, 2.8, k % 2 ? '#5D58B8' : '#7B6FD0', 0.65);
+  },
+  hawkweed(x, y, P) {
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.3, 70 + rnd() * 30, 8, (rnd() - 0.5) * 0.04, 0.05);
+    stem(P, pts, 0, 2, col, 0.6);
+    for (const s of [-1, 1]) leaf(P, x, y - 2, UP + s * 1.1, 14 + rnd() * 5, 2.4, choose(LEAF), 0.2, 0.8);
+    hawkHead(P, pts[8][0], pts[8][1], 5.5 + rnd() * 1.5, 2.1);
+  },
+  daisy(x, y, P) {
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.5, 45 + rnd() * 25, 7, (rnd() - 0.5) * 0.05, 0.08);
+    stem(P, pts, 0, 1.8, col, 0.6);
+    for (const f of [0.25, 0.45]) { const [lx, ly] = at(pts, f); leaf(P, lx, ly, dirAt(pts, 3) + side() * 0.9, 9 + rnd() * 3, 1.8, choose(LEAF), 1.8 * f, 0.5); }
+    daisyHead(P, pts[7][0], pts[7][1], 6 + rnd() * 2, 1.9);
+  },
+  violet(x, y, P) {   // sweet violet: heart leaves and five satin petals
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.4, 30 + rnd() * 12, 5, (rnd() - 0.5) * 0.08, 0.1);
+    stem(P, pts, 0, 1.3, col, 0.5);
+    for (const s of [-1, 1]) leaf(P, x + s * 2, y - 2, UP + s * 1.15, 9, 4, choose(LEAF), 0.2, 0.6);
+    const [fx, fy] = pts[5], shades = choose([['#6E4AA8', '#8E6CC6', '#A58AD9'], ['#5B4AA6', '#7B6FD0', '#9C92E0']]);
+    [[UP - 0.5, 5.5, 0], [UP + 0.5, 5.5, 0], [-0.25, 5, 1], [Math.PI + 0.25, 5, 1], [Math.PI / 2, 6, 2]].forEach(([a, len, k], i) => leaf(P, fx, fy, a, len, 2.6, shades[k], 1.4 + i * 0.1, 0.35));
+    addKnot(P, 2, fx, fy, 0.9, '#F2D04A');
+  },
+  rose(x, y, P) {   // a rose sewn in outline, a spiral in a cup, like backstitch on linen
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.3, 50 + rnd() * 20, 7, (rnd() - 0.5) * 0.04, 0.05);
+    stem(P, pts, 0, 1.6, col, 0.55);
+    for (const f of [0.35, 0.6]) { const [lx, ly] = at(pts, f); leaf(P, lx, ly, dirAt(pts, 3) + side() * 0.9, 8 + rnd() * 3, 3, choose(LEAF), 1.6 * f, 0.5); }
+    const [hx, hy] = pts[7], c0 = choose(['#D6455B', '#E05A7A', '#C23A4E']), R = 6 + rnd() * 2, sp = [];
+    for (let t = 0; t <= 1; t += 0.04) { const a = t * Math.PI * 4.4, r = 0.8 + R * t; sp.push([hx + Math.cos(a) * r, hy - R * 0.2 + Math.sin(a) * r * 0.85]); }
+    stem(P, sp, 1.7, 2.8, c0, 0.55);
+    stem(P, [[hx - R * 1.1, hy - R * 0.4], [hx - R * 0.9, hy + R * 0.6], [hx, hy + R * 1.05], [hx + R * 0.9, hy + R * 0.6], [hx + R * 1.1, hy - R * 0.4]], 2.8, 3.3, c0, 0.55);
+    for (const s of [-1, 1]) addLine(P, 2.6, hx, hy + R * 1.05, hx + s * 3, hy + R * 1.6, col, 0.55);
+  },
+  forgetMeNot(x, y, P) {   // a sprig of tiny sky-blue flowers with yellow eyes
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.4, 40 + rnd() * 20, 6, (rnd() - 0.5) * 0.06, 0.08);
+    stem(P, pts, 0, 1.5, col, 0.5);
+    leaf(P, pts[2][0], pts[2][1], dirAt(pts, 2) + side() * 0.9, 8, 2, choose(LEAF), 0.6, 0.4);
+    const heads = [pts[6], at(pts, 0.75), at(pts, 0.6)];
+    heads.forEach(([hx, hy], i) => {
+      const fx = hx + (i ? side() * (4 + rnd() * 3) : 0), fy = hy - (i ? 1 : 0);
+      if (i) addLine(P, 1.4, hx, hy, fx, fy, col, 0.4);
+      const a0 = rnd() * Math.PI;
+      for (let k = 0; k < 5; k++) leaf(P, fx, fy, a0 + k * 1.2566, 2.8, 1.4, choose(['#7FAEE0', '#8DB8E8', '#6E9ED6']), 1.5 + i * 0.25 + k * 0.05, 0.2);
+      addKnot(P, 1.9 + i * 0.25, fx, fy, 0.75, '#F2D04A');
+    });
+  },
+  queenAnne(x, y, P) {   // Queen Anne's lace: a flat umbrella of rays tipped with cream knots
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.25, 60 + rnd() * 20, 7, (rnd() - 0.5) * 0.04, 0.04);
+    stem(P, pts, 0, 1.8, col, 0.5);
+    const [hx, hy] = pts[7];
+    for (let k = 0; k < 9; k++) {
+      const a = UP + (k / 8 - 0.5) * 2.3, L = 9 + rnd() * 4, ex = hx + Math.cos(a) * L, ey = hy + Math.sin(a) * L * 0.75;
+      addLine(P, 1.8 + k * 0.04, hx, hy, ex, ey, col, 0.35);
+      for (let j = 0; j < 4; j++) addKnot(P, 2.2 + k * 0.05, ex + (rnd() - 0.5) * 3.2, ey + (rnd() - 0.7) * 2.4, 0.75, choose(['#F4EFD8', '#EDE6C8', '#FBF8EC']));
+    }
+    leaf(P, pts[2][0], pts[2][1], dirAt(pts, 2) + side() * 1, 9, 2.4, choose(LEAF), 0.6, 0.5);
+  },
+  babysBreath(x, y, P) {   // a cloud of tiny white knots on hair-fine branches
+    const col = choose(STEM), pts = curve(x, y, UP, 45 + rnd() * 15, 6, 0, 0.1);
+    stem(P, pts, 0, 1.4, col, 0.4);
+    for (let k = 0; k < 7; k++) {
+      const [bx, by] = at(pts, 0.45 + k * 0.08), b = curve(bx, by, UP + (k % 2 ? 1 : -1) * (0.5 + rnd() * 0.5), 14 + rnd() * 10, 3, 0, 0.2);
+      stem(P, b, 0.8 + k * 0.1, 1.4 + k * 0.1, col, 0.35);
+      for (let j = 0; j < 3; j++) addKnot(P, 1.5 + k * 0.1 + j * 0.05, b[3][0] + (rnd() - 0.5) * 4, b[3][1] + (rnd() - 0.5) * 4, 0.7, '#FFFFFF');
+    }
+  },
+  blossom(x, y, P) {   // a cherry-blossom twig: brown branch, pink loop flowers, round buds
+    const pts = curve(x, y, UP + side() * 0.6, 40 + rnd() * 15, 6, (rnd() - 0.5) * 0.1, 0.08), bark = '#8A6A4A';
+    stem(P, pts, 0, 1.4, bark, 0.6);
+    for (let k = 0; k < 3; k++) {
+      const [bx, by] = at(pts, 0.45 + k * 0.27), s = k % 2 ? 1 : -1, fx = bx + s * 5, fy = by - 3;
+      addLine(P, 1 + k * 0.2, bx, by, fx, fy, bark, 0.4);
+      if (k === 1 && rnd() < 0.5) { addKnot(P, 1.6, fx, fy, 1.4, '#F2A7B8'); continue; }
+      lazyFlower(P, fx, fy, 3.6, 5, choose(['#F2A7B8', '#F6BCC8', '#EE98AC']), '#D9455B', 1.4 + k * 0.25, 0.6);
+    }
+    addKnot(P, 1.6, pts[6][0], pts[6][1], 1.3, '#F2A7B8');
+  },
+  thistle(x, y, P) {   // a pink thistle: a green bulb with a fan of straight stitches on top
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.3, 45 + rnd() * 15, 6, (rnd() - 0.5) * 0.05, 0.05);
+    stem(P, pts, 0, 1.5, col, 0.5);
+    for (const f of [0.3, 0.55]) { const [lx, ly] = at(pts, f); leaf(P, lx, ly, dirAt(pts, 3) + side() * 0.8, 10, 2.2, choose(LEAF), 1.5 * f, 0.5); }
+    const [hx, hy] = pts[6], shade = choose(['#E07AA0', '#D9568A', '#C77DC9']);
+    leaf(P, hx, hy, UP, 5, 2.4, '#7FA04A', 1.5, 0.4);
+    for (let k = 0; k < 13; k++) { const a = UP + (k / 12 - 0.5) * 1.6; addLine(P, 1.9 + k * 0.05, hx + Math.cos(a) * 1.5, hy - 4.5, hx + Math.cos(a) * 7, hy - 4.5 + Math.sin(a) * 6.5, shade, 0.5); }
+  },
+  tulip(x, y, P) {   // a tulip: two long leaves and a cup of three satin petals
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.2, 45 + rnd() * 15, 6, (rnd() - 0.5) * 0.03, 0.03);
+    stem(P, pts, 0, 1.5, col, 0.6);
+    for (const s of [-1, 1]) leaf(P, x + s, y - 1, UP + s * 0.35, 20 + rnd() * 6, 2.6, choose(LEAF), 0.3, 0.8);
+    const [hx, hy] = pts[6], shades = choose([['#E8564F', '#F27F6E'], ['#F2C935', '#F5D86A'], ['#E57AA4', '#F29CBB']]);
+    leaf(P, hx, hy, UP - 0.35, 8, 3, shades[1], 1.5, 0.4);
+    leaf(P, hx, hy, UP + 0.35, 8, 3, shades[1], 1.6, 0.4);
+    leaf(P, hx, hy, UP, 9, 3.2, shades[0], 1.8, 0.4);
+  },
+  lavender(x, y, P) {   // lavender: grey-green stems ending in spikes of little purple loops
+    for (let b = 0; b < 3; b++) {
+      const pts = curve(x + (b - 1) * 3, y, UP + (b - 1) * 0.25, 50 + rnd() * 20, 7, 0, 0.03), t0 = b * 0.2;
+      stem(P, pts, t0, t0 + 1.4, '#8FA37A', 0.4);
+      for (let k = 0; k < 6; k++) { const [sx, sy] = at(pts, 0.6 + k * 0.07); addLoop(P, t0 + 1.4 + k * 0.08, sx, sy, UP + (k % 2 ? 0.7 : -0.7), 2.4, k % 2 ? '#8E7CC3' : '#A08ED6', 0.55); }
+    }
+  },
+  bluebell(x, y, P) {   // bluebells: an arching stem with bells hanging along one side
+    const col = choose(STEM), s0 = side(), pts = curve(x, y, UP + s0 * 0.2, 55 + rnd() * 15, 8, s0 * 0.08, 0.03);
+    stem(P, pts, 0, 1.6, col, 0.5);
+    for (const sd of [-1, 1]) leaf(P, x + sd, y - 1, UP + sd * 0.45, 16 + rnd() * 5, 1.8, choose(LEAF), 0.2, 0.7);
+    for (let k = 0; k < 4; k++) {
+      const [bx, by] = at(pts, 0.5 + k * 0.15), ex = bx + s0 * 2.5, ey = by + 3.5, shade = choose(['#6F86D6', '#5B74C9', '#8095E0']);
+      addLine(P, 1 + k * 0.2, bx, by, ex, ey, col, 0.35);
+      for (const da of [-0.35, 0, 0.35]) addLoop(P, 1.3 + k * 0.2, ex, ey, Math.PI / 2 + da, 3.6, shade, 0.55);
+    }
+  },
+  poppy(x, y, P) {   // a red poppy: four round satin petals and a dark centre
+    const col = choose(STEM), pts = curve(x, y, UP + (rnd() - 0.5) * 0.4, 50 + rnd() * 20, 7, (rnd() - 0.5) * 0.06, 0.06);
+    stem(P, pts, 0, 1.6, col, 0.5);
+    leaf(P, pts[2][0], pts[2][1], dirAt(pts, 2) + side() * 0.9, 10, 3, choose(LEAF), 0.6, 0.5);
+    const [hx, hy] = pts[7], shade = choose([['#E2433A', '#C8302A'], ['#F07F2E', '#D9651E']]), a0 = rnd();
+    for (let k = 0; k < 4; k++) leaf(P, hx, hy, a0 + k * Math.PI / 2, 6.5, 4.2, shade[k % 2], 1.7 + k * 0.12, 0.4);
+    addKnot(P, 2.3, hx, hy, 1.4, '#2E2A26');
+    for (let k = 0; k < 8; k++) { const a = k * 0.785; addLine(P, 2.4, hx + Math.cos(a) * 1.6, hy + Math.sin(a) * 1.6, hx + Math.cos(a) * 3, hy + Math.sin(a) * 3, '#2E2A26', 0.35); }
+  },
+  lilyOfValley(x, y, P) {   // lily of the valley: one broad leaf and a stem of tiny white bells
+    const col = choose(STEM), s0 = side(), pts = curve(x, y, UP + s0 * 0.25, 45 + rnd() * 10, 7, s0 * 0.09, 0.02);
+    stem(P, pts, 0, 1.5, col, 0.45);
+    leaf(P, x - s0 * 2, y - 1, UP - s0 * 0.3, 22, 5, choose(LEAF), 0.2, 1);
+    for (let k = 0; k < 5; k++) {
+      const [bx, by] = at(pts, 0.45 + k * 0.12), ex = bx + s0 * 2, ey = by + 3;
+      addLine(P, 1.1 + k * 0.15, bx, by, ex, ey, col, 0.3);
+      addKnot(P, 1.3 + k * 0.15, ex, ey, 1.5, '#FBF8EC');
+      for (const da of [-0.5, 0.5]) addLine(P, 1.4 + k * 0.15, ex, ey + 1, ex + Math.cos(Math.PI / 2 + da) * 2.2, ey + 1 + Math.sin(Math.PI / 2 + da) * 2.2, '#F4EFD8', 0.4);
+    }
+  },
+  bee(x, y, P) {   // now and then a bumblebee visits
+    const a = (rnd() - 0.5) * 0.6, X = (u, v) => x + Math.cos(a) * u - Math.sin(a) * v, Y = (u, v) => y + Math.sin(a) * u + Math.cos(a) * v;
+    addLoop(P, 0.3, X(0, -1), Y(0, -1), a - 2.1, 4.2, '#FBF8F0', 0.6);
+    addLoop(P, 0.4, X(1, -1), Y(1, -1), a - 1.2, 4.2, '#FBF8F0', 0.6);
+    [['#3A2E26', -2.6], ['#F2C935', -0.9], ['#3A2E26', 0.8], ['#D9851E', 2.4]].forEach(([c, u], k) => addKnot(P, 0.5 + k * 0.1, X(u, 0), Y(u, 0), 1.25, c));
+  },
+};
+const WEIGHTS = [
+  ['clover', 1.4], ['lilac', 1.1], ['buttercup', 1.1], ['speedwell', 1.1], ['grass', 1], ['panicle', 0.7], ['campion', 0.8],
+  ['vetch', 0.9], ['hawkweed', 0.8], ['daisy', 1.1], ['violet', 1], ['rose', 0.9], ['forgetMeNot', 1.1], ['queenAnne', 0.8],
+  ['babysBreath', 0.8], ['blossom', 0.8], ['thistle', 0.9], ['tulip', 0.8], ['lavender', 0.9], ['bluebell', 0.9], ['poppy', 0.8],
+  ['lilyOfValley', 0.8], ['bee', 0.2],
+];
+const WEIGHT_SUM = WEIGHTS.reduce((a, [, wt]) => a + wt, 0);
+function pickSpecies() { let t = rnd() * WEIGHT_SUM; for (const [n, wt] of WEIGHTS) if ((t -= wt) <= 0) return n; return 'grass'; }
+// plants only grow where they are planted (a tap or a new fold); they never seed themselves
+function sow(x, y, born = gclock) {
+  if (!onShirt(x, y) || onPattern(x, y) || plants.length >= MAX_PLANTS || washing) return;
+  const P = { x, y, born, prims: [], baked: false };
+  // a clump of two or three plants of the same kind, coming up one after another
+  const kind = pickSpecies(), n = kind === 'bee' ? 1 : BUSH_STEMS[0] + (rnd() * (BUSH_STEMS[1] - BUSH_STEMS[0] + 1) | 0);
+  for (let k = 0; k < n; k++) {
+    const from = P.prims.length;
+    SPECIES[kind](k ? x + side() * (6 + rnd() * 8) : x, k ? y + (rnd() - 0.3) * 6 : y, P);
+    for (let i = from; i < P.prims.length; i++) P.prims[i][1] += k * 0.45;
+  }
+  for (const p of P.prims) {   // grow the whole plant about its root
+    const sc = (i) => { p[i] = x + (p[i] - x) * PLANT_SCALE; p[i + 1] = y + (p[i + 1] - y) * PLANT_SCALE; };
+    if (p[0] === 'l') { sc(2); sc(4); p[7] *= THREAD_W; }
+    else if (p[0] === 'o') { sc(2); p[5] *= PLANT_SCALE; p[7] *= THREAD_W; }
+    else { sc(2); p[4] *= PLANT_SCALE; }
+  }
+  P.prims.sort((a, b) => a[1] - b[1]);
+  P.dur = P.prims[P.prims.length - 1][1] + 0.2;
+  plants.push(P);
+}
+
+// ---- drawing: every stitch is a strand with a shadow underneath and a sheen along its top ----
+function strand(c, build, col, w) {
+  c.save(); c.translate(w * 0.28, w * 0.42); build(); c.strokeStyle = 'rgba(60,50,40,.22)'; c.lineWidth = w; c.stroke(); c.restore();
+  build(); c.strokeStyle = col; c.lineWidth = w; c.stroke();
+  c.save(); c.translate(-w * 0.12, -w * 0.14); build(); c.strokeStyle = hi(col); c.lineWidth = w * 0.36; c.stroke(); c.restore();
+}
+function drawPlant(c, P, age) {
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const s of P.prims) {
+    if (s[1] > age) break;
+    if (s[0] === 'l') {
+      const [, , x1, y1, x2, y2, col, w] = s;
+      strand(c, () => { c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); }, col, w);
+    } else if (s[0] === 'o') {
+      const [, , x, y, a, len, col, w] = s, ca = Math.cos(a), sa = Math.sin(a), wd = len * 0.32;
+      const X = (u, v) => x + ca * u - sa * v, Y = (u, v) => y + sa * u + ca * v;
+      strand(c, () => {
+        c.beginPath(); c.moveTo(X(len * 0.12, 0), Y(len * 0.12, 0));
+        c.bezierCurveTo(X(len * 0.45, -wd), Y(len * 0.45, -wd), X(len * 1.02, -wd * 0.8), Y(len * 1.02, -wd * 0.8), X(len, 0), Y(len, 0));
+        c.bezierCurveTo(X(len * 1.02, wd * 0.8), Y(len * 1.02, wd * 0.8), X(len * 0.45, wd), Y(len * 0.45, wd), X(len * 0.12, 0), Y(len * 0.12, 0));
+      }, col, w);
+      strand(c, () => { c.beginPath(); c.moveTo(X(len * 0.94, 0), Y(len * 0.94, 0)); c.lineTo(X(len * 1.12, 0), Y(len * 1.12, 0)); }, col, w * 0.8);
+    } else {
+      const [, , x, y, r, col] = s;
+      c.fillStyle = 'rgba(60,50,40,.25)'; c.beginPath(); c.arc(x + r * 0.25, y + r * 0.35, r, 0, 7); c.fill();
+      c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+      c.strokeStyle = hi(col); c.lineWidth = r * 0.35; c.beginPath(); c.arc(x, y, r * 0.55, Math.PI * 0.9, Math.PI * 1.7); c.stroke();
+    }
+  }
+}
+const toVirtual = (c) => c.setTransform(CW / VW, 0, 0, CH / VH, 0, 0);
+[sctx, bctx, gctx].forEach(toVirtual);
+
+function gardenStep(dt) {
+  gclock += dt;
+  if (washing) {
+    // the wash: the stitches fade gently, leaving only a faint trace in the cotton
+    washing.t = Math.min(1, washing.t + dt / 5);
+    if (washing.t >= 1) {
+      for (const P of plants) if (!P.baked) drawPlant(bctx, P, 1e9);
+      gctx.save(); gctx.setTransform(1, 0, 0, 1, 0, 0); gctx.globalAlpha = 0.1; gctx.filter = 'saturate(.35)'; gctx.drawImage(bakeCanvas, 0, 0); gctx.restore();
+      bctx.save(); bctx.setTransform(1, 0, 0, 1, 0, 0); bctx.clearRect(0, 0, CW, CH); bctx.restore();
+      plants = []; washing = null;
+    }
+    gardenDirty = true;
+  }
+  let growing = false;
+  for (const P of plants) {
+    if (P.baked) continue;
+    const age = gclock - P.born;
+    if (age > P.dur) { drawPlant(bctx, P, 1e9); P.baked = true; gardenDirty = true; } else if (age > 0) growing = true;
+  }
+  // re-upload the big texture at most ~24 times a second while plants are being stitched
+  texWait += dt;
+  if (!gardenDirty && (!growing || texWait < TEX_STEP)) return;
+  texWait = 0;
+  sctx.save(); sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, CW, CH);
+  sctx.drawImage(ghostCanvas, 0, 0);
+  sctx.globalAlpha = washing ? 1 - smooth(washing.t) : 1;
+  sctx.drawImage(bakeCanvas, 0, 0);
+  sctx.restore();
+  sctx.save();
+  sctx.globalAlpha = washing ? 1 - smooth(washing.t) : 1;
+  for (const P of plants) if (!P.baked && gclock > P.born) drawPlant(sctx, P, gclock - P.born);
+  sctx.restore();
+  sctx.save(); sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.globalCompositeOperation = 'destination-out'; sctx.drawImage(patternCut, 0, 0); sctx.restore();
+  stitchTex.needsUpdate = true;
+  gardenDirty = false;
+}
+
+// folds become furrows: where the cloth has been folded sharply, a row of plants comes up along the crease,
+// starting in the middle of the fold and spreading out to its ends
+let furrowed = new Uint8Array(N);
+function creasePoints() {
+  const out = new Uint8Array(N);
+  for (let n = 0; n < active.length; n++) {
+    const k = active[n], i = k % NX, j = (k / NX) | 0;
+    for (const [di, dj] of [[2, 0], [0, 2]]) {
+      if (i - di < 0 || i + di >= NX || j - dj < 0 || j + dj >= NY) continue;
+      const a = idx(i - di, j - dj), b = idx(i + di, j + dj);
+      if (!w[a] || !w[b]) continue;
+      const ax = p[k * 3] - p[a * 3], ay = p[k * 3 + 1] - p[a * 3 + 1], az = p[k * 3 + 2] - p[a * 3 + 2];
+      const bx = p[b * 3] - p[k * 3], by = p[b * 3 + 1] - p[k * 3 + 1], bz = p[b * 3 + 2] - p[k * 3 + 2];
+      const cos = (ax * bx + ay * by + az * bz) / (Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz) + 1e-9);
+      if (cos < -0.5) out[k] = 1;
+    }
+  }
+  return out;
+}
+function markFurrows(cr) {
+  for (let k = 0; k < N; k++) {
+    if (!cr[k]) continue;
+    const i = k % NX, j = (k / NX) | 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const ii = i + di, jj = j + dj;
+      if (ii >= 0 && jj >= 0 && ii < NX && jj < NY) furrowed[idx(ii, jj)] = 1;
+    }
+  }
+}
+function sproutFurrows() {
+  const cr = creasePoints(), fresh = new Uint8Array(N);
+  let count = 0;
+  for (let k = 0; k < N; k++) if (cr[k] && !furrowed[k]) { fresh[k] = 1; count++; }
+  markFurrows(cr);
+  if (count < 4) return;
+  let budget = 7;
+  const seenK = new Uint8Array(N);
+  for (let k0 = 0; k0 < N && budget > 0; k0++) {
+    if (!fresh[k0] || seenK[k0]) continue;
+    // gather one connected crease line
+    const line = [], stack = [k0];
+    seenK[k0] = 1;
+    while (stack.length) {
+      const k = stack.pop(), i = k % NX, j = (k / NX) | 0;
+      line.push(k);
+      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+        const ii = i + di, jj = j + dj;
+        if (ii < 0 || jj < 0 || ii >= NX || jj >= NY) continue;
+        const kk = idx(ii, jj);
+        if (fresh[kk] && !seenK[kk]) { seenK[kk] = 1; stack.push(kk); }
+      }
+    }
+    if (line.length < 4) continue;
+    let ci = 0, cj = 0;
+    for (const k of line) { ci += k % NX; cj += (k / NX) | 0; }
+    ci /= line.length; cj /= line.length;
+    const dist = (k) => Math.hypot(k % NX - ci, ((k / NX) | 0) - cj);
+    line.sort((a, b) => dist(a) - dist(b));
+    const maxD = Math.max(1, dist(line[line.length - 1]));
+    const chosen = [];
+    for (const k of line) {
+      if (budget <= 0) break;
+      const i = k % NX, j = (k / NX) | 0;
+      if (chosen.some((c) => Math.hypot(c % NX - i, ((c / NX) | 0) - j) < 5)) continue;
+      chosen.push(k);
+      budget--;
+      sow((i / (NX - 1)) * VW + (rnd() - 0.5) * 6, (1 - j / (NY - 1)) * VH + (rnd() - 0.5) * 6, gclock + (dist(k) / maxD) * SPROUT_DELAY);
+    }
+  }
+}
+
+// ---------- motion between poses ----------
+let awake = 0, still = 0, morph = null, pose = 'folded';
+const wake = () => { awake = 1; still = 0; };
+const smooth = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+// fold progress f: 0 = flat, 1 = folded. The bottom half turns first, then the left and right sides.
+function foldAt(f) {
+  foldInto(p, Math.PI * smooth((f - 0.32) / 0.38), Math.PI * smooth((f - 0.6) / 0.4), Math.PI * smooth(f / 0.4));
+}
+// from a crumpled state: rise, spread out in the air, and settle flat
+function spreadOut(then) {
+  const to = new Float32Array(N * 3);
+  foldInto(to, 0, 0, 0);
+  morph = { kind: 'spread', from: p.slice(), to, t: 0, then };
+  awake = 0;
+}
+function foldUp() {
+  if (pose === 'folded') return;
+  const start = () => { morph = { kind: 'fold', t: 0, dir: 1 }; };
+  if (pose === 'flat') start(); else spreadOut(start);
+  awake = 0;
+}
+function layFlat() {
+  if (pose === 'flat') return;
+  if (pose === 'folded') morph = { kind: 'fold', t: 1, dir: -1 };
+  else spreadOut(null);
+  awake = 0;
+}
+
+// ---------- camera ----------
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.minDistance = 0.6;
+controls.maxDistance = 7;
+controls.maxPolarAngle = Math.PI / 2 - 0.04;
+controls.target.set(0, 0, 0.05);
+
+let camTween = null;
+function moveCamera(pos, target) {
+  camTween = { t: 0, fp: camera.position.clone(), ft: controls.target.clone(), tp: new THREE.Vector3(...pos), tt: new THREE.Vector3(...target) };
+}
+controls.addEventListener('start', () => { camTween = null; });
+
+// ---------- pinch ----------
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const hitPoint = new THREE.Vector3();
+let lastEvent = null;
+
+function setRay(e) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+}
+function pick(e) {
+  if (!front) return null;
+  setRay(e);
+  const hits = ray.intersectObjects([front, back], false);
+  for (const h of hits) if (h.uv && alphaAt(h.uv.x, h.uv.y) > 0.5) return h;
+  return null;
+}
+const camDir = new THREE.Vector3(), liftPoint = new THREE.Vector3(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function updateTarget() {
+  if (!lastEvent) return;
+  setRay(lastEvent);
+  camera.getWorldDirection(camDir).negate();
+  liftPoint.copy(grab.anchor); liftPoint.y += grab.lift;
+  plane.setFromNormalAndCoplanarPoint(camDir, liftPoint);
+  const low = FLOOR + T * 2;
+  if (ray.ray.intersectPlane(plane, hitPoint) && hitPoint.y >= low) { grab.target.copy(hitPoint); return; }
+  floorPlane.constant = -low;
+  if (ray.ray.intersectPlane(floorPlane, hitPoint)) grab.target.copy(hitPoint);
+}
+function startGrab(hit) {
+  const f = hit.face;
+  let c = f.a, best = Infinity;
+  for (const v of [f.a, f.b, f.c]) {
+    const d = (p[v * 3] - hit.point.x) ** 2 + (p[v * 3 + 1] - hit.point.y) ** 2 + (p[v * 3 + 2] - hit.point.z) ** 2;
+    if (d < best) { best = d; c = v; }
+  }
+  grab.ids = []; grab.wts = []; grab.off = [];
+  for (let n = 0; n < active.length; n++) {
+    const k = active[n];
+    const d = Math.hypot(flatX[k] - flatX[c], flatY[k] - flatY[c]);
+    if (d > GRAB_R) continue;
+    grab.ids.push(k);
+    grab.wts.push(Math.pow(1 - d / GRAB_R, 1.5) * 0.9 + (k === c ? 0.1 : 0));
+    // fingers gather the cloth in towards the pinch point
+    grab.off.push([(p[k * 3] - p[c * 3]) * 0.5, (p[k * 3 + 1] - p[c * 3 + 1]) * 0.5, (p[k * 3 + 2] - p[c * 3 + 2]) * 0.5]);
+  }
+  grab.anchor.set(p[c * 3], p[c * 3 + 1], p[c * 3 + 2]);
+  grab.centre = c;
+  grab.lift = 0;
+  grab.target.set(p[c * 3], p[c * 3 + 1], p[c * 3 + 2]);
+  grab.on = true;
+  morph = null;
+  pose = 'free';
+  wake();
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const hit = pick(e);
+  if (!hit) return;
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  controls.enabled = false;
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+  lastEvent = e;
+  tap = { x: e.clientX, y: e.clientY, t: performance.now(), uv: hit.object === front ? hit.uv.clone() : null };
+  startGrab(hit);
+  canvas.style.cursor = 'grabbing';
+}, { capture: true });
+canvas.addEventListener('pointermove', (e) => {
+  if (grab.on) { lastEvent = e; updateTarget(); return; }
+  if (e.pointerType === 'mouse' && !e.buttons) canvas.style.cursor = pick(e) ? 'grab' : 'default';
+});
+let tap = null;
+const release = (e) => {
+  if (!grab.on) return;
+  // a quick tap without dragging plants a seed where it landed
+  if (tap && tap.uv && e && e.type === 'pointerup' && performance.now() - tap.t < 280 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 6) {
+    sow(tap.uv.x * VW, (1 - tap.uv.y) * VH);
+  }
+  tap = null;
+  grab.on = false;
+  controls.enabled = true;
+  canvas.style.cursor = 'grab';
+  wake();
+};
+canvas.addEventListener('pointerup', release);
+canvas.addEventListener('pointercancel', release);
+
+document.getElementById('btnFold').addEventListener('click', () => {
+  foldUp();
+  moveCamera([0, 2.0, 2.05], [0, 0, 0.05]);
+});
+// clicking a button gives it a little spin
+document.querySelectorAll('.sew').forEach((b) => {
+  b.addEventListener('click', () => { b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); });
+  b.addEventListener('animationend', (e) => { if (e.animationName === 'pop') b.classList.remove('pop'); });
+});
+// embroider the notebook (the yellow to-do notes stay as highlighter)
+document.querySelectorAll('.notebook dt').forEach((dt) => dt.prepend('Q. '));
+embroider(document.querySelector('.notebook'), '.label, h1, h2, .concept, .meta, dt, dd');
+document.getElementById('btnWash').addEventListener('click', () => {
+  if (!washing && plants.length) washing = { t: 0 };
+});
+document.getElementById('btnFlat').addEventListener('click', () => {
+  layFlat();
+  moveCamera([0, 3.4, 2.6], [0, 0, 0]);
+});
+
+function resize() {
+  const wdt = box.clientWidth, hgt = box.clientHeight;
+  renderer.setSize(wdt, hgt, false);
+  camera.aspect = wdt / hgt;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(box);
+resize();
+camera.position.set(0, 2.0, 2.05);
+if (camera.aspect < 0.8) camera.position.multiplyScalar(1.25);
+
+// ---------- load ----------
+Promise.all([
+  loadTex('shirt/color.jpg', true),
+  loadTex('shirt/back-color.jpg', true),
+  loadTex('shirt/alpha.png', false),
+  loadTex('shirt/bump.jpg', false),
+  loadTex('shirt/back-bump.jpg', false),
+  loadImage('shirt/alpha.png'),
+  loadImage('shirt/pattern-mask.png'),
+]).then(([color, backColor, alpha, bump, backBump, alphaImg, patternImg]) => {
+  const pc = document.createElement('canvas');
+  pc.width = PW = patternImg.width; pc.height = PH = patternImg.height;
+  const pctx = pc.getContext('2d', { willReadFrequently: true });
+  pctx.drawImage(patternImg, 0, 0);
+  patternData = pctx.getImageData(0, 0, PW, PH).data;
+  preparePatternCut(patternImg);
+  const cv = document.createElement('canvas');
+  cv.width = AW = alphaImg.width; cv.height = AH = alphaImg.height;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(alphaImg, 0, 0);
+  alphaData = ctx.getImageData(0, 0, AW, AH).data;
+
+  const tris = buildCloth();
+  triIdx = new Int32Array(tris);
+  geo.setIndex(tris);
+  foldAt(1);
+  q.set(p);
+  refreshGeometry();
+  markFurrows(creasePoints());   // the shop fold is not a furrow
+
+  const frontMat = new THREE.MeshPhysicalMaterial({ ...fabric, map: color, alphaMap: alpha, bumpMap: bump, bumpScale: 0.7, side: THREE.FrontSide });
+  frontMat.onBeforeCompile = (sh) => {
+    sh.uniforms.stitchMap = { value: stitchTex };
+    sh.fragmentShader = 'uniform sampler2D stitchMap;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+      '#include <map_fragment>\n{ vec4 st = texture2D(stitchMap, vMapUv); diffuseColor.rgb = mix(diffuseColor.rgb, st.rgb, st.a); }');
+  };
+  front = new THREE.Mesh(geo, frontMat);
+  back = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ ...fabric, map: backColor, alphaMap: alpha, bumpMap: backBump, bumpScale: 0.7, side: THREE.BackSide }));
+  front.castShadow = true;
+  front.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, alphaMap: alpha, alphaTest: 0.5, side: THREE.DoubleSide });
+  front.receiveShadow = back.receiveShadow = true;
+  front.frustumCulled = back.frustumCulled = false;
+  scene.add(front, back);
+  document.getElementById('loading').remove();
+}).catch((err) => {
+  console.error(err);
+  document.getElementById('loading').textContent = 'The shirt could not load. Reload the page to try again.';
+});
+
+// one frame of cloth: four substeps; once all but a few stray points have stopped, calm it and freeze it
+const before = new Float32Array(N * 3);
+function simFrame(dt) {
+  // wait a moment before lifting, so a tap that plants a seed barely disturbs the cloth
+  if (grab.on) { if (!tap || performance.now() - tap.t > 160) grab.lift = Math.min(LIFT, grab.lift + dt * 0.8); updateTarget(); }
+  before.set(p);
+  for (let s = 0; s < SUB; s++) substep(DT / SUB);
+  // how much of the cloth is still visibly moving?
+  let fast = 0, samples = 0;
+  for (let n = 0; n < active.length; n += 3) {
+    const k = active[n] * 3;
+    samples++;
+    if (Math.abs(p[k] - before[k]) + Math.abs(p[k + 1] - before[k + 1]) + Math.abs(p[k + 2] - before[k + 2]) > 2e-3) fast++;
+  }
+  const share = fast / samples;
+  damping = !grab.on && share < 0.1 ? SETTLE_DAMP : DAMP;
+  if (!grab.on && share < 0.045) { if (++still > 12) awake = 0; } else still = 0;
+  return share;
+}
+// ---------- loop ----------
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (front) {
+    if (morph && morph.kind === 'fold') {
+      morph.t = Math.min(1, Math.max(0, morph.t + morph.dir * dt / 1.8));
+      foldAt(morph.t);
+      q.set(p);
+      if (morph.t === 1 || morph.t === 0) { pose = morph.t === 1 ? 'folded' : 'flat'; morph = null; }
+      refreshGeometry();
+    } else if (morph) {
+      morph.t = Math.min(1, morph.t + dt / 1.1);
+      const e = morph.t < 0.5 ? 4 * morph.t ** 3 : 1 - (-2 * morph.t + 2) ** 3 / 2;
+      // rise high enough to untangle in the air, then come down flat
+      const arc = Math.sin(Math.PI * Math.min(1, morph.t * 1.15)) * 0.45;
+      for (let n = 0; n < active.length; n++) {
+        const k = active[n] * 3;
+        p[k] = morph.from[k] + (morph.to[k] - morph.from[k]) * e;
+        p[k + 1] = morph.from[k + 1] + (morph.to[k + 1] - morph.from[k + 1]) * e + Math.max(0, arc);
+        p[k + 2] = morph.from[k + 2] + (morph.to[k + 2] - morph.from[k + 2]) * e;
+      }
+      q.set(p);
+      if (morph.t >= 1) { const then = morph.then; pose = 'flat'; morph = null; if (then) then(); }
+      refreshGeometry();
+    } else if (awake) {
+      simFrame(dt);
+      refreshGeometry();
+      if (FURROWS && !awake && pose === 'free') sproutFurrows();
+    }
+    gardenStep(dt);
+  }
+  if (camTween) {
+    camTween.t = Math.min(1, camTween.t + dt / 1.0);
+    const e = 1 - Math.pow(1 - camTween.t, 3);
+    camera.position.lerpVectors(camTween.fp, camTween.tp, e);
+    controls.target.lerpVectors(camTween.ft, camTween.tt, e);
+    if (camTween.t >= 1) camTween = null;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>

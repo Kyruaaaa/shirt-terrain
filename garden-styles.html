@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garden Style Studies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FFFFFF; --grid:#DCE6F0; --ink:#23262B; --pen:#2A4A8C; --pencil:#8A919B; --marker:#FFF0A3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+  .page{max-width:1640px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-family:Caveat,cursive;font-size:44px;font-weight:700;margin:0;color:var(--ink)}
+  h2{font-family:Caveat,cursive;font-size:32px;font-weight:700;margin:48px 0 4px;color:var(--pen)}
+  .lede{color:var(--pencil);margin:6px 0 18px;line-height:1.6;max-width:820px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px}
+  button{font:inherit;font-size:12px;background:#fff;color:var(--ink);border:1px solid var(--ink);padding:6px 12px;cursor:pointer;border-radius:2px}
+  button:hover{background:var(--marker)}
+  .grid5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px}
+  @media (max-width:1200px){.grid5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media (max-width:760px){.grid5{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:480px){.grid5{grid-template-columns:1fr}.page{padding:20px 16px 60px}}
+  .card{border:1px solid var(--grid);padding:10px 10px 12px;background:#fff}
+  .card.sel{border-color:var(--ink)}
+  .card canvas{display:block;width:100%;height:auto;aspect-ratio:600/729;touch-action:none;cursor:crosshair}
+  .tag{font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:11px;margin:10px 0 2px}
+  .note{color:var(--pencil);line-height:1.5;margin:0}
+  .crease{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:28px;align-items:start}
+  @media (max-width:760px){.crease{grid-template-columns:1fr}}
+  .crease canvas{display:block;width:100%;height:auto;aspect-ratio:600/729;touch-action:none;cursor:crosshair;border:1px solid var(--grid)}
+  .modes{display:grid;gap:10px}
+  .mode{border:1px solid var(--grid);padding:12px;cursor:pointer;text-align:left;background:#fff;color:var(--ink)}
+  .mode.on{border-color:var(--ink);background:#FFFBE0;color:var(--ink)}
+  .mode b{display:block;font-size:13px;margin-bottom:4px}
+  .mode span{color:var(--pencil);line-height:1.5}
+  .readout{margin-top:14px;color:var(--pen);font-family:Caveat,cursive;font-size:22px;min-height:28px}
+  .hint{font-family:Caveat,cursive;font-size:20px;color:var(--pen)}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Garden style studies</h1>
+  <p class="lede">All five panels share one garden. Tap a shirt to plant a seed, hold to plant a clump, or drag to sow a trail. Each seed grows into a daisy, aster, goldenrod, fern, grass or clover. Grown plants slowly drop seeds of their own, so the garden keeps sprawling.</p>
+  <div class="bar">
+    <button id="wash">Wash</button>
+    <button id="seed">Scatter a few seeds</button>
+    <button id="clear">Clear (incl. ghosts)</button>
+    <span class="hint">← "Wash" tumbles the garden away and leaves a faint pressed ghost</span>
+  </div>
+  <div class="grid5" id="grid"></div>
+
+  <h2>Idea 2: folds become furrows</h2>
+  <p class="lede">Drag a straight line across the shirt to fold it there. The crease works like a ploughed furrow, and a row of plants comes up along it. This shirt draws in whichever style you touched last above. Pick how fast the crease responds:</p>
+  <div class="crease">
+    <canvas id="cc" width="600" height="729"></canvas>
+    <div>
+      <div class="modes" id="modes">
+        <button class="mode on" data-m="instant"><b>A · Instant (0 ms)</b><span>The whole row sprouts at once the moment you let go.</span></button>
+        <button class="mode" data-m="seep"><b>B · Germinates from the middle (≈1.5 s)</b><span>Seedlings come up from the center of the fold outward, like water wicking along the crease.</span></button>
+        <button class="mode" data-m="memory"><b>C · Fabric memory (repeat to deepen)</b><span>A single fold only grows grass, and it wilts away over about 20 s. Fold the same line again and flowers come up that stay. Only habits become gardens.</span></button>
+      </div>
+      <div class="bar" style="margin-top:12px"><button id="cclear">Clear furrows</button></div>
+      <div class="readout" id="readout">drag across the shirt →</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const W=600, H=729, FW=100, FH=122, PI=Math.PI;
+const img=new Image(); img.src='shirt/demo-front.png';
+const mask=new Uint8Array(FW*FH);
+const clamp=(x,a,b)=>x<a?a:x>b?b:x, smooth=(a,b,x)=>{x=clamp((x-a)/(b-a),0,1);return x*x*(3-2*x)}, ease=x=>1-Math.pow(1-clamp(x,0,1),3);
+const onShirt=(x,y)=>{const i=Math.round(x/W*(FW-1)),j=Math.round(y/H*(FH-1));return i>=0&&j>=0&&i<FW&&j<FH&&mask[j*FW+i]===1;};
+const R=Math.random, rs=()=>R()<.5?-1:1;
+let clock=0;
+
+// ---------- plant generator (structure shared by every style) ----------
+function stemPts(x,y,a,len,n,bend,wob){const p=[[x,y]];for(let i=0;i<n;i++){a+=bend+(R()-.5)*wob;x+=Math.cos(a)*len/n;y+=Math.sin(a)*len/n;p.push([x,y]);}return p;}
+const dirAt=(p,i)=>{i=Math.max(1,i);return Math.atan2(p[i][1]-p[i-1][1],p[i][0]-p[i-1][0]);};
+const SPECIES={
+  daisy(x,y,P){const T=2.6+R()*.8,n=9,pts=stemPts(x,y,-PI/2+(R()-.5)*.6,70+R()*45,n,(R()-.5)*.04,.08);
+    P.parts.push({type:'stem',pts,t0:0,t1:T,w:2.2});
+    let s=rs();for(const i of [2,4,6]){P.parts.push({type:'leaf',x:pts[i][0],y:pts[i][1],a:dirAt(pts,i)+s*(.9+R()*.4),len:13+R()*8,t0:T*i/n+.1,kind:'lance'});s=-s;}
+    P.parts.push({type:'flower',x:pts[n][0],y:pts[n][1],r:11+R()*5,t0:T+.2,kind:'daisy'});return T+2;},
+  aster(x,y,P){const T=2.4,n=9,pts=stemPts(x,y,-PI/2+(R()-.5)*.5,60+R()*25,n,(R()-.5)*.04,.08);
+    P.parts.push({type:'stem',pts,t0:0,t1:T,w:2});
+    for(const i of [2,3])P.parts.push({type:'leaf',x:pts[i][0],y:pts[i][1],a:dirAt(pts,i)+(i%2?1:-1)*1.1,len:9+R()*5,t0:T*i/n+.1,kind:'lance'});
+    let end=T+.2;P.parts.push({type:'flower',x:pts[n][0],y:pts[n][1],r:6+R()*2,t0:T+.2,kind:'aster'});
+    for(const i of [5,6,7,8]){if(R()<.25)continue;const s=rs(),t0=T*i/n,t1=t0+1.4,b=stemPts(pts[i][0],pts[i][1],dirAt(pts,i)+s*(.5+R()*.4),22+R()*20,5,s*.05,.08);
+      P.parts.push({type:'stem',pts:b,t0,t1,w:1.4});P.parts.push({type:'flower',x:b[5][0],y:b[5][1],r:5.5+R()*2.5,t0:t1+.2,kind:'aster'});end=Math.max(end,t1+.2);}
+    return end+1.8;},
+  goldenrod(x,y,P){const T=3,n=12,s=rs(),pts=stemPts(x,y,-PI/2+s*.25,95+R()*35,n,s*.045,.04);
+    P.parts.push({type:'stem',pts,t0:0,t1:T,w:2.2});
+    for(let i=1;i<=6;i++)P.parts.push({type:'leaf',x:pts[i][0],y:pts[i][1],a:dirAt(pts,i)+(i%2?1:-1)*.75,len:14+R()*7,t0:T*i/n+.1,kind:'lance'});
+    for(let i=6;i<=n;i++){const d=dirAt(pts,i);for(let k=0;k<4;k++){const a=d+s*(PI/2)*(.4+R()*.9),r=3+R()*12*(1-(i-6)/(n-4));
+      P.parts.push({type:'dot',x:pts[i][0]+Math.cos(a)*r,y:pts[i][1]+Math.sin(a)*r,r:1.7+R()*1.2,t0:T*i/n+.6+R()*.5,kind:'gold'});}}
+    return T+2;},
+  fern(x,y,P){const T=2.6,n=12,s=rs(),pts=stemPts(x,y,-PI/2+s*.3,70+R()*35,n,s*.06,.03);
+    P.parts.push({type:'stem',pts,t0:0,t1:T,w:1.8});
+    for(let i=1;i<n;i++)for(const side of [-1,1])P.parts.push({type:'leaf',x:pts[i][0],y:pts[i][1],a:dirAt(pts,i)+side*1.25,len:20*(1-i/n)+4,t0:T*i/n+.15,kind:'leaflet'});
+    return T+1.2;},
+  grass(x,y,P){let end=0;const n=5+(R()*4|0);
+    for(let b=0;b<n;b++){const t0=R()*.6,t1=t0+1.6+R();P.parts.push({type:'stem',pts:stemPts(x+(R()-.5)*8,y,-PI/2+(R()-.5)*1.1,30+R()*45,6,(R()-.5)*.12,.02),t0,t1,w:2,kind:'blade'});end=Math.max(end,t1);}
+    return end+.2;},
+  clover(x,y,P){const n=3+(R()*3|0);
+    for(let k=0;k<n;k++){const p=stemPts(x,y,-PI/2+(R()-.5)*1.8,14+R()*12,3,0,.1),t1=.8+R()*.5;P.parts.push({type:'stem',pts:p,t0:0,t1,w:1.4});
+      const a0=R()*PI;for(let l=0;l<3;l++)P.parts.push({type:'leaf',x:p[3][0],y:p[3][1],a:a0+l*2.094,len:7+R()*2,t0:t1,kind:'round'});}
+    if(R()<.7){const p=stemPts(x,y,-PI/2+(R()-.5)*.6,28+R()*8,4,0,.08);P.parts.push({type:'stem',pts:p,t0:0,t1:1.6,w:1.4});P.parts.push({type:'flower',x:p[4][0],y:p[4][1],r:6.5,t0:1.9,kind:'clover'});}
+    return 3.6;},
+};
+const WEIGHTS=[['daisy',2],['aster',2],['goldenrod',1.5],['fern',1.5],['grass',2.5],['clover',1.5]];
+function pickSpecies(){let t=R()*11,k=0;for(const [n,w] of WEIGHTS){if((t-=w)<=0)return n;}return 'grass';}
+function makePlant(x,y,species,born){const P={x,y,born,parts:[],baked:false};P.dur=SPECIES[species||pickSpecies()](x,y,P);return P;}
+
+// ---------- drawing helpers ----------
+function partial(pts,p){const n=pts.length-1,f=p*n,k=Math.floor(f),o=pts.slice(0,k+1);if(k<n){const a=pts[k],b=pts[k+1],u=f-k;o.push([a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u]);}return o;}
+function poly(ctx,pts){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);}
+const WR={lance:.32,leaflet:.3,round:.62};
+function leafPath(ctx,x,y,a,len,kind){const c=Math.cos(a),s=Math.sin(a),w=len*WR[kind],X=(u,v)=>x+c*u-s*v,Y=(u,v)=>y+s*u+c*v;
+  ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(X(len*.45,-w),Y(len*.45,-w),X(len,0),Y(len,0));ctx.quadraticCurveTo(X(len*.45,w),Y(len*.45,w),x,y);}
+function drawPlant(ctx,P,age,S){
+  for(const q of P.parts){
+    if(q.type==='stem'){const p=clamp((age-q.t0)/(q.t1-q.t0),0,1);if(p<=0)continue;S.stem(ctx,partial(q.pts,p),q.w,q.kind);}
+    else if(q.type==='leaf'){const s=ease((age-q.t0)/.9);if(s<=0)continue;S.leaf(ctx,q.x,q.y,q.a,q.len*s,q.kind);}
+    else if(q.type==='flower'){const s=clamp((age-q.t0)/1.6,0,1);if(s<=0)continue;S.flower(ctx,q.x,q.y,q.r,s,q.kind);}
+    else if(q.type==='dot'){const s=ease((age-q.t0)/.6);if(s<=0)continue;S.dot(ctx,q.x,q.y,q.r*s,q.kind);}
+  }
+}
+const petalsOf=k=>k==='daisy'?14:k==='aster'?22:0;
+
+// ---------- the five styles ----------
+const INK='#2E2C29';
+const styles=[
+ { name:'1 · Botanical ink', note:'Pen-and-ink herbarium plates. Outlines, midribs and stippled centers only, with no color. It sits closest to your notebook page and reads like field notes.',
+   stem(c,p,w,k){c.strokeStyle=INK;c.lineWidth=k==='blade'?.9:w*.55;c.lineCap='round';poly(c,p);c.stroke();},
+   leaf(c,x,y,a,len,k){c.strokeStyle=INK;c.lineWidth=.9;leafPath(c,x,y,a,len,k);c.stroke();
+     if(k!=='round'){c.lineWidth=.6;c.beginPath();c.moveTo(x,y);c.lineTo(x+Math.cos(a)*len*.85,y+Math.sin(a)*len*.85);c.stroke();}},
+   flower(c,x,y,r,s,k){c.strokeStyle=INK;c.lineWidth=.9;
+     if(s<.3){c.beginPath();c.ellipse(x,y-r*.2,r*.22,r*.32,0,0,7);c.stroke();return;}
+     const R0=r*ease((s-.3)/.7);
+     if(k==='clover'){for(let i=0;i<14;i++){const a=i*2.4,d=R0*.55*Math.sqrt(i/14);c.beginPath();c.arc(x+Math.cos(a)*d,y+Math.sin(a)*d,R0*.28,PI*1.1,PI*1.9);c.stroke();}return;}
+     const n=petalsOf(k);for(let i=0;i<n;i++){const a=i/n*2*PI;
+       if(k==='daisy'){c.beginPath();c.ellipse(x+Math.cos(a)*R0*.58,y+Math.sin(a)*R0*.58,R0*.42,R0*.11,a,0,7);c.stroke();}
+       else{c.beginPath();c.moveTo(x+Math.cos(a)*R0*.3,y+Math.sin(a)*R0*.3);c.lineTo(x+Math.cos(a)*R0,y+Math.sin(a)*R0);c.stroke();}}
+     c.fillStyle='#fff';c.beginPath();c.arc(x,y,R0*.26,0,7);c.fill();c.stroke();c.fillStyle=INK;
+     for(let i=0;i<7;i++){const a=i*2.4,d=R0*.17*Math.sqrt(i/7);c.fillRect(x+Math.cos(a)*d-.6,y+Math.sin(a)*d-.6,1.2,1.2);}},
+   dot(c,x,y,r){c.strokeStyle=INK;c.lineWidth=.8;c.beginPath();c.arc(x,y,r,0,7);c.stroke();} },
+
+ { name:'2 · Embroidered', note:'The garden is sewn on in the same language as your duck: running-stitch stems, satin-stitch leaves, lazy-daisy petal loops and French-knot centers. It looks like it was always part of the shirt.',
+   stem(c,p,w,k){c.lineCap='round';c.setLineDash(k==='blade'?[5,3]:[6,4]);
+     c.save();c.translate(.8,1.4);c.strokeStyle='rgba(0,0,0,.25)';c.lineWidth=w*1.4;poly(c,p);c.stroke();c.restore();
+     c.strokeStyle=k==='blade'?'#7FA046':'#4F8A3C';c.lineWidth=w*1.3;poly(c,p);c.stroke();c.setLineDash([]);},
+   leaf(c,x,y,a,len,k){c.save();c.shadowColor='rgba(0,0,0,.28)';c.shadowBlur=2;c.shadowOffsetY=1.2;
+     c.fillStyle=k==='round'?'#6FA552':'#5E9A45';leafPath(c,x,y,a,len,k);c.fill();c.restore();
+     // satin threads
+     c.save();leafPath(c,x,y,a,len,k);c.clip();c.strokeStyle='rgba(255,255,255,.28)';c.lineWidth=.8;
+     for(let u=-len;u<len*1.2;u+=2.4){const b=a+.9;c.beginPath();c.moveTo(x+Math.cos(a)*u-Math.cos(b)*len,y+Math.sin(a)*u-Math.sin(b)*len);c.lineTo(x+Math.cos(a)*u+Math.cos(b)*len,y+Math.sin(a)*u+Math.sin(b)*len);c.stroke();}
+     c.restore();},
+   flower(c,x,y,r,s,k){const knot=(x,y,r,col)=>{c.fillStyle=col;c.beginPath();c.arc(x,y,r,0,7);c.fill();c.strokeStyle='rgba(0,0,0,.25)';c.lineWidth=.8;c.stroke();c.fillStyle='rgba(255,255,255,.6)';c.beginPath();c.arc(x-r*.3,y-r*.3,r*.35,0,7);c.fill();};
+     if(s<.3){knot(x,y,r*.3,'#8DB255');return;}
+     const R0=r*ease((s-.3)/.7);
+     if(k==='clover'){for(let i=0;i<9;i++){const a=i*2.4,d=R0*.6*Math.sqrt(i/9);knot(x+Math.cos(a)*d,y+Math.sin(a)*d,R0*.3,'#D98CB3');}return;}
+     const n=k==='daisy'?8:10,col=k==='daisy'?'#FBF8EE':'#9A84CF';
+     c.save();c.shadowColor='rgba(0,0,0,.3)';c.shadowBlur=2;c.shadowOffsetY=1;c.strokeStyle=col;c.lineWidth=k==='daisy'?2.6:2;
+     for(let i=0;i<n;i++){const a=i/n*2*PI;c.beginPath();c.ellipse(x+Math.cos(a)*R0*.55,y+Math.sin(a)*R0*.55,R0*.42,R0*.17,a,0,7);c.stroke();}c.restore();
+     for(let i=0;i<3;i++)knot(x+Math.cos(i*2.1)*R0*.12,y+Math.sin(i*2.1)*R0*.12,R0*.17,'#E8C33A');},
+   dot(c,x,y,r){c.fillStyle='#E8C33A';c.beginPath();c.arc(x,y,r*1.15,0,7);c.fill();c.strokeStyle='rgba(90,70,10,.45)';c.lineWidth=.7;c.stroke();} },
+
+ { name:'3 · Pressed specimens', note:'Flattened, translucent and a little faded, like flowers pressed between the pages of a book. Overlaps darken where petals stack, and the cotton shows through every leaf.',
+   pre(c){c.globalCompositeOperation='multiply';},
+   stem(c,p,w,k){c.strokeStyle=k==='blade'?'rgba(150,160,95,.8)':'rgba(125,120,80,.85)';c.lineWidth=k==='blade'?1.6:w*.9;c.lineCap='round';poly(c,p);c.stroke();},
+   leaf(c,x,y,a,len,k){c.fillStyle=k==='round'?'rgba(140,165,100,.6)':'rgba(130,145,85,.6)';leafPath(c,x,y,a,len,k);c.fill();c.strokeStyle='rgba(110,95,60,.45)';c.lineWidth=.7;c.stroke();
+     c.strokeStyle='rgba(230,225,200,.7)';c.beginPath();c.moveTo(x,y);c.lineTo(x+Math.cos(a)*len*.8,y+Math.sin(a)*len*.8);c.stroke();},
+   flower(c,x,y,r,s,k){if(s<.3){c.fillStyle='rgba(150,150,90,.6)';c.beginPath();c.ellipse(x,y,r*.22,r*.3,0,0,7);c.fill();return;}
+     const R0=r*ease((s-.3)/.7);
+     if(k==='clover'){c.fillStyle='rgba(205,150,170,.5)';for(let i=0;i<10;i++){const a=i*2.4,d=R0*.55*Math.sqrt(i/10);c.beginPath();c.ellipse(x+Math.cos(a)*d,y+Math.sin(a)*d,R0*.35,R0*.18,a,0,7);c.fill();}return;}
+     const n=k==='daisy'?13:18;c.fillStyle=k==='daisy'?'rgba(232,220,190,.75)':'rgba(160,135,185,.5)';
+     for(let i=0;i<n;i++){const a=i/n*2*PI+(i%2)*.1;c.beginPath();c.ellipse(x+Math.cos(a)*R0*.55,y+Math.sin(a)*R0*.55,R0*.45,R0*(k==='daisy'?.13:.08),a,0,7);c.fill();}
+     c.fillStyle='rgba(200,150,60,.75)';c.beginPath();c.arc(x,y,R0*.24,0,7);c.fill();},
+   dot(c,x,y,r){c.fillStyle='rgba(210,175,70,.6)';c.beginPath();c.arc(x,y,r*1.2,0,7);c.fill();} },
+
+ { name:'4 · Wildflower meadow', note:'Full, saturated color, like the real edge of a trail at Lincoln Woods: white daisies, purple asters, goldenrod plumes, ferns and clover. It is the most lush and the most "alive".',
+   stem(c,p,w,k){c.strokeStyle=k==='blade'?(p.length%2?'#6DAA45':'#4E8F35'):'#3F7A2E';c.lineWidth=k==='blade'?2.2:w;c.lineCap='round';poly(c,p);c.stroke();},
+   leaf(c,x,y,a,len,k){c.fillStyle=k==='leaflet'?'#4F9A3E':k==='round'?'#5DA04A':'#3F8233';leafPath(c,x,y,a,len,k);c.fill();
+     // light half
+     const cc=Math.cos(a),s=Math.sin(a),w=len*WR[k];c.fillStyle='rgba(170,220,120,.35)';c.beginPath();c.moveTo(x,y);c.quadraticCurveTo(x+cc*len*.45+s*w,y+s*len*.45-cc*w,x+cc*len,y+s*len);c.closePath();c.fill();
+     if(k==='round'){c.strokeStyle='rgba(255,255,255,.55)';c.lineWidth=.8;c.beginPath();c.arc(x+cc*len*.5,y+s*len*.5,len*.22,a+2.2,a+4.1);c.stroke();}},
+   flower(c,x,y,r,s,k){if(s<.3){c.fillStyle='#7CA84A';c.beginPath();c.ellipse(x,y,r*.22,r*.3,0,0,7);c.fill();return;}
+     const R0=r*ease((s-.3)/.7);
+     if(k==='clover'){for(let i=0;i<14;i++){const a=i*2.4,d=R0*.55*Math.sqrt(i/14);c.fillStyle=i%3?'#E39AC0':'#C46E9A';c.beginPath();c.ellipse(x+Math.cos(a)*d,y+Math.sin(a)*d,R0*.28,R0*.14,a,0,7);c.fill();}return;}
+     const n=k==='daisy'?14:20;
+     for(let i=0;i<n;i++){const a=i/n*2*PI;c.fillStyle=k==='daisy'?(i%2?'#FFFFFF':'#F4F2EC'):(i%2?'#A68BE0':'#8C6FCC');
+       c.beginPath();c.ellipse(x+Math.cos(a)*R0*.56,y+Math.sin(a)*R0*.56,R0*.44,R0*(k==='daisy'?.14:.08),a,0,7);c.fill();
+       if(k==='daisy'){c.strokeStyle='rgba(120,120,110,.45)';c.lineWidth=.6;c.stroke();}}
+     const g=c.createRadialGradient(x-R0*.08,y-R0*.08,0,x,y,R0*.28);g.addColorStop(0,'#FFD84A');g.addColorStop(1,'#D99A1E');c.fillStyle=g;c.beginPath();c.arc(x,y,R0*.26,0,7);c.fill();},
+   dot(c,x,y,r){c.fillStyle=r>2.2?'#F0C73A':'#E2B02A';c.beginPath();c.arc(x,y,r*1.2,0,7);c.fill();} },
+
+ { name:'5 · Cross-stitch grid', note:'Every plant snaps to the stitch grid as little X stitches, like a sampler, and like the green cross-stitches on your LUCKY letters. It also echoes the grid paper next to it.',
+   cell:7,
+   xs(c,x,y,col){const C=7,i=Math.round(x/C),j=Math.round(y/C),key=i*4096+j;if(this.seen.has(key))return;this.seen.add(key);
+     const cx=i*C,cy=j*C,h=2.6;c.strokeStyle='rgba(0,0,0,.22)';c.lineWidth=2;c.beginPath();c.moveTo(cx-h+.6,cy-h+1);c.lineTo(cx+h+.6,cy+h+1);c.moveTo(cx+h+.6,cy-h+1);c.lineTo(cx-h+.6,cy+h+1);c.stroke();
+     c.strokeStyle=col;c.lineWidth=1.8;c.beginPath();c.moveTo(cx-h,cy-h);c.lineTo(cx+h,cy+h);c.moveTo(cx+h,cy-h);c.lineTo(cx-h,cy+h);c.stroke();},
+   pre(){this.seen=new Set();}, seen:new Set(),
+   stem(c,p,w,k){const col=k==='blade'?'#7FA046':'#3E7A3A';for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i],L=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let t=0;t<=L;t+=3)this.xs(c,a[0]+(b[0]-a[0])*t/L,a[1]+(b[1]-a[1])*t/L,col);}},
+   leaf(c,x,y,a,len,k){const ca=Math.cos(a),sa=Math.sin(a),w=len*WR[k]*.75,C=7;
+     for(let u=0;u<=len;u+=3)for(let v=-w;v<=w;v+=3){if(Math.abs(v)>w*Math.sin(PI*u/len)+.5)continue;this.xs(c,x+ca*u-sa*v,y+sa*u+ca*v,k==='round'?'#6FA552':'#4F8A3C');}},
+   flower(c,x,y,r,s,k){if(s<.3){this.xs(c,x,y,'#8DB255');return;}const R0=r*ease((s-.3)/.7)*1.15,col=k==='daisy'?'#FFFFFF':k==='aster'?'#8E74C9':'#D98CB3';
+     for(let u=-R0;u<=R0;u+=3)for(let v=-R0;v<=R0;v+=3){const d=Math.hypot(u,v);if(d>R0)continue;this.xs(c,x+u,y+v,d<R0*.38&&k!=='clover'?'#E2B93B':col);}},
+   dot(c,x,y,r){this.xs(c,x,y,'#E2B93B');} },
+];
+
+// ---------- panels ----------
+const grid=document.getElementById('grid'), panels=[];
+let plants=[], creaseStyle=1;
+const mkCanvas=()=>{const c=document.createElement('canvas');c.width=W;c.height=H;return c;};
+styles.forEach((s,idx)=>{
+  const card=document.createElement('div');card.className='card'+(idx===creaseStyle?' sel':'');
+  const cv=mkCanvas();card.append(cv);
+  const t=document.createElement('div');t.className='tag';t.textContent=s.name;
+  const p=document.createElement('p');p.className='note';p.textContent=s.note;
+  card.append(t,p);grid.append(card);
+  const bake=mkCanvas(),ghost=mkCanvas();
+  panels.push({cv,ctx:cv.getContext('2d'),s,card,bake,bctx:bake.getContext('2d'),ghost,gctx:ghost.getContext('2d')});
+  bindPointer(cv,(u,v,down,ev)=>{
+    if(ev==='down'){creaseStyle=idx;panels.forEach((q,k)=>q.card.classList.toggle('sel',k===idx));}
+    sow.x=u*W;sow.y=v*H;
+    if(ev==='down'){sow.down=true;sow.hold=0;sowAt(sow.x,sow.y);sow.lx=sow.x;sow.ly=sow.y;}
+    else if(ev==='up')sow.down=false;
+    else if(ev==='move'&&sow.down&&Math.hypot(sow.x-sow.lx,sow.y-sow.ly)>22){sowAt(sow.x,sow.y);sow.lx=sow.x;sow.ly=sow.y;}
+  });
+});
+const sow={x:0,y:0,lx:0,ly:0,down:false,hold:0};
+function sowAt(x,y,sp){if(!onShirt(x,y)||plants.length>320)return;plants.push(makePlant(x,y,sp,clock));}
+function bindPointer(cv,cb){
+  const pos=e=>{const r=cv.getBoundingClientRect();return [(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height];};
+  cv.addEventListener('pointerdown',e=>{try{cv.setPointerCapture(e.pointerId)}catch(_){}const [x,y]=pos(e);cb(x,y,true,'down');});
+  cv.addEventListener('pointermove',e=>{const [x,y]=pos(e);cb(x,y,e.buttons>0,'move');});
+  cv.addEventListener('pointerup',e=>{const [x,y]=pos(e);cb(x,y,false,'up');});
+  cv.addEventListener('pointercancel',()=>cb(0,0,false,'up'));
+}
+function renderPlant(ctx,P,age,s){ctx.save();if(s.pre)s.pre(ctx);drawPlant(ctx,P,age,s);ctx.restore();}
+
+// ---------- wash ----------
+let wash=null;
+document.getElementById('wash').onclick=()=>{if(!wash&&plants.length)wash={t:0};};
+document.getElementById('clear').onclick=()=>{plants=[];panels.forEach(p=>{p.bctx.clearRect(0,0,W,H);p.gctx.clearRect(0,0,W,H);});};
+document.getElementById('seed').onclick=()=>{let n=0;for(let k=0;k<60&&n<7;k++){const x=W*(.2+R()*.6),y=H*(.3+R()*.6);if(onShirt(x,y)){sowAt(x,y);n++;}}};
+function endWash(){
+  for(const p of panels){
+    for(const P of plants)if(!P.baked)renderPlant(p.bctx,P,1e9,p.s);
+    p.gctx.save();p.gctx.globalAlpha=.16;try{p.gctx.filter='grayscale(1) sepia(.7)';}catch(_){}p.gctx.drawImage(p.bake,0,0);p.gctx.restore();
+    p.bctx.clearRect(0,0,W,H);
+  }
+  plants=[];wash=null;
+}
+
+// ---------- furrow (crease) demo ----------
+const cc=document.getElementById('cc'), cctx=cc.getContext('2d'), cbake=mkCanvas(), cbctx=cbake.getContext('2d');
+let mode='instant', drag=null, flashes=[], furrows=[], cplants=[], bakedStyle=creaseStyle;
+document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{document.querySelectorAll('.mode').forEach(x=>x.classList.remove('on'));b.classList.add('on');mode=b.dataset.m;});
+document.getElementById('cclear').onclick=()=>{furrows=[];cplants=[];cbctx.clearRect(0,0,W,H);};
+const readout=document.getElementById('readout');
+bindPointer(cc,(u,v,down,ev)=>{
+  if(ev==='down')drag={a:[u*W,v*H],b:[u*W,v*H]};
+  else if(ev==='move'&&drag)drag.b=[u*W,v*H];
+  else if(ev==='up'&&drag){if(Math.hypot(drag.b[0]-drag.a[0],drag.b[1]-drag.a[1])>50)fold(drag.a,drag.b);drag=null;}
+});
+function fold(a,b){
+  flashes.push({a,b,t0:clock});
+  const L=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.floor(L/26);
+  const near=furrows.filter(f=>{const d=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1]);return Math.min(d(f.a,a)+d(f.b,b),d(f.a,b)+d(f.b,a))<70;}).length;
+  let msg;
+  for(let i=0;i<=n;i++){const t=n?i/n:.5,x=a[0]+(b[0]-a[0])*t+(R()-.5)*8,y=a[1]+(b[1]-a[1])*t+(R()-.5)*8;if(!onShirt(x,y))continue;
+    let born=clock,sp,life=0;
+    if(mode==='seep')born=clock+Math.abs(t-.5)*2*1.5;
+    if(mode==='memory'){if(near===0){sp='grass';life=20;}else sp=['daisy','aster','clover','goldenrod'][i%4];}
+    const P=makePlant(x,y,sp,born);P.life=life;cplants.push(P);}
+  if(mode==='instant')msg='row sprouted in 0 ms';
+  else if(mode==='seep')msg='germinating from the middle, 1.5 s…';
+  else msg=near?`same fold ×${near+1}: flowers take root`:'only grass, and it wilts unless you fold here again';
+  furrows.push({a,b});readout.textContent=msg;
+}
+function drawFurrows(){
+  const ctx=cctx,S=styles[creaseStyle];
+  if(bakedStyle!==creaseStyle){cbctx.clearRect(0,0,W,H);for(const P of cplants)P.baked=false;bakedStyle=creaseStyle;}
+  ctx.clearRect(0,0,W,H);ctx.drawImage(img,0,0,W,H);
+  for(const f of flashes){const t=(clock-f.t0)/.45;if(t>1)continue;const [ax,ay]=f.a,[bx,by]=f.b,nx=-(by-ay),ny=bx-ax,s=2000/Math.hypot(nx,ny),ex=(bx-ax)*3,ey=(by-ay)*3;
+    ctx.save();ctx.beginPath();ctx.moveTo(ax-ex,ay-ey);ctx.lineTo(bx+ex,by+ey);ctx.lineTo(bx+ex+nx*s,by+ey+ny*s);ctx.lineTo(ax-ex+nx*s,ay-ey+ny*s);ctx.closePath();
+    ctx.globalCompositeOperation='multiply';ctx.fillStyle=`rgba(60,70,90,${.35*(1-t)})`;ctx.fill();ctx.restore();}
+  flashes=flashes.filter(f=>clock-f.t0<.45);
+  ctx.save();ctx.globalCompositeOperation='multiply';ctx.lineCap='round';
+  for(const f of furrows){ctx.strokeStyle='rgba(110,100,85,.28)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(...f.a);ctx.lineTo(...f.b);ctx.stroke();
+    ctx.strokeStyle='rgba(80,70,60,.3)';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(f.a[0]+1.5,f.a[1]+1.5);ctx.lineTo(f.b[0]+1.5,f.b[1]+1.5);ctx.stroke();}
+  ctx.restore();
+  ctx.drawImage(cbake,0,0);
+  cplants=cplants.filter(P=>!(P.life&&clock-P.born>P.life));
+  for(const P of cplants){const age=clock-P.born;if(age<0||P.baked)continue;
+    if(!P.life&&age>P.dur){renderPlant(cbctx,P,1e9,S);P.baked=true;continue;}
+    ctx.save();if(P.life)ctx.globalAlpha=1-smooth(P.life*.4,P.life,age);renderPlant(ctx,P,P.life?Math.min(age,P.dur):age,S);ctx.restore();}
+  ctx.save();ctx.globalCompositeOperation='destination-in';ctx.drawImage(img,0,0,W,H);ctx.restore();
+  if(drag){ctx.save();ctx.setLineDash([8,6]);ctx.strokeStyle='#2A4A8C';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(...drag.a);ctx.lineTo(...drag.b);ctx.stroke();ctx.restore();}
+}
+
+// ---------- loop ----------
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
+  if(wash){wash.t+=dt/2.4;if(wash.t>=1)endWash();}
+  else{
+    if(sow.down){sow.hold+=dt;if(sow.hold>.35){sow.hold=0;const a=R()*2*PI,r=8+R()*18;sowAt(sow.x+Math.cos(a)*r,sow.y+Math.sin(a)*r);}}
+    // sprawl: grown plants drop seeds nearby
+    const n=plants.length;for(let i=0;i<n;i++){const P=plants[i];if(clock-P.born>P.dur&&R()<dt/16){const a=R()*2*PI,r=25+R()*40;sowAt(P.x+Math.cos(a)*r,P.y+Math.sin(a)*r*.7);}}
+  }
+  for(const p of panels){
+    const ctx=p.ctx;ctx.clearRect(0,0,W,H);ctx.drawImage(img,0,0,W,H);
+    ctx.save();ctx.globalCompositeOperation='multiply';ctx.drawImage(p.ghost,0,0);ctx.restore();
+    for(const P of plants)if(!P.baked&&clock-P.born>P.dur+.05&&!wash)renderPlant(p.bctx,P,1e9,p.s);
+    ctx.save();
+    if(wash){const t=wash.t,cx=W/2,cy=H*.55;ctx.translate(cx,cy);ctx.rotate(t*t*PI*2.2);ctx.scale(1-.25*t,1-.25*t);ctx.translate(-cx,-cy);ctx.globalAlpha=1-smooth(.2,.95,t);}
+    ctx.drawImage(p.bake,0,0);
+    for(const P of plants){if(P.baked||clock-P.born>P.dur+.05&&!wash)continue;renderPlant(ctx,P,clock-P.born,p.s);}
+    ctx.restore();
+    if(wash){ctx.save();ctx.globalCompositeOperation='multiply';ctx.fillStyle=`rgba(200,225,240,${.5*Math.sin(PI*Math.min(1,wash.t))})`;ctx.fillRect(0,0,W,H);ctx.restore();}
+    ctx.save();ctx.globalCompositeOperation='destination-in';ctx.drawImage(img,0,0,W,H);ctx.restore();
+  }
+  if(!wash)for(const P of plants)if(clock-P.born>P.dur+.05)P.baked=true;
+  drawFurrows();
+  requestAnimationFrame(frame);
+}
+img.onload=()=>{
+  const c=document.createElement('canvas');c.width=FW;c.height=FH;const x=c.getContext('2d');x.drawImage(img,0,0,FW,FH);
+  const d=x.getImageData(0,0,FW,FH).data;for(let k=0;k<FW*FH;k++)mask[k]=d[k*4+3]>200?1:0;
+  requestAnimationFrame(frame);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Map Style Studies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FFFFFF; --grid:#DCE6F0; --ink:#23262B; --pen:#2A4A8C; --pencil:#8A919B; --marker:#FFF0A3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+  .page{max-width:1640px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-family:Caveat,cursive;font-size:44px;font-weight:700;margin:0;color:var(--ink)}
+  h2{font-family:Caveat,cursive;font-size:32px;font-weight:700;margin:48px 0 4px;color:var(--pen)}
+  .lede{color:var(--pencil);margin:6px 0 18px;line-height:1.6;max-width:820px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px}
+  button{font:inherit;font-size:12px;background:#fff;color:var(--ink);border:1px solid var(--ink);padding:6px 12px;cursor:pointer;border-radius:2px}
+  button:hover{background:var(--marker)}
+  button.on{background:var(--ink);color:#fff}
+  .grid5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px}
+  @media (max-width:1200px){.grid5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media (max-width:760px){.grid5{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:480px){.grid5{grid-template-columns:1fr}.page{padding:20px 16px 60px}}
+  .card{border:1px solid var(--grid);padding:10px 10px 12px;background:#fff}
+  .card canvas{display:block;width:100%;height:auto;aspect-ratio:600/729;touch-action:none;cursor:crosshair}
+  .tag{font-weight:600;letter-spacing:.04em;text-transform:uppercase;font-size:11px;margin:10px 0 2px}
+  .note{color:var(--pencil);line-height:1.5;margin:0}
+  .crease{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:28px;align-items:start}
+  @media (max-width:760px){.crease{grid-template-columns:1fr}}
+  .crease canvas{display:block;width:100%;height:auto;aspect-ratio:600/729;touch-action:none;cursor:crosshair;border:1px solid var(--grid)}
+  .modes{display:grid;gap:10px}
+  .mode{border:1px solid var(--grid);padding:12px;cursor:pointer;text-align:left;background:#fff;color:var(--ink)}
+  .mode.on{border-color:var(--ink);background:#FFFBE0;color:var(--ink)}
+  .mode b{display:block;font-size:13px;margin-bottom:4px}
+  .mode span{color:var(--pencil);line-height:1.5}
+  .readout{margin-top:14px;color:var(--pen);font-family:Caveat,cursive;font-size:22px;min-height:28px}
+  .hint{font-family:Caveat,cursive;font-size:20px;color:var(--pen)}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Map style studies</h1>
+  <p class="lede">All five panels share one ground. Press and hold anywhere on any shirt: land rises where you touch, and the longer you hold, the higher it gets. After you let go, it keeps sprawling slowly. Compare how each style draws the same touches.</p>
+  <div class="bar">
+    <button id="wash">Wash</button>
+    <button id="seed">Scatter a few touches</button>
+    <button id="clear">Clear (incl. ghosts)</button>
+    <span class="hint">← "Wash" swirls everything away and leaves a faint ghost</span>
+  </div>
+  <div class="grid5" id="grid"></div>
+
+  <h2>Idea 2: creases become contour lines</h2>
+  <p class="lede">Drag a straight line across the shirt to fold it there. When you release, the fold leaves a crease, and the crease becomes a ridge in the map. Where creases cross, they pile up into peaks. Pick how fast the crease responds:</p>
+  <div class="crease">
+    <canvas id="cc" width="600" height="729"></canvas>
+    <div>
+      <div class="modes" id="modes">
+        <button class="mode on" data-m="instant"><b>A · Instant (0 ms)</b><span>The crease snaps in the moment you let go. It reads clearly as cause and effect, but it's a bit mechanical.</span></button>
+        <button class="mode" data-m="seep"><b>B · Ink seeps in (≈1.5 s)</b><span>The line draws itself outward from the middle of the fold, like ink wicking along the fibers. This one feels the most like the cloth is “remembering”.</span></button>
+        <button class="mode" data-m="memory"><b>C · Fabric memory (repeat to deepen, 20 s half-life)</b><span>One fold is only a faint, temporary line. Fold the same place again and it gets deeper; leave it alone and it relaxes, but some always stays. Only habits become permanent landforms.</span></button>
+      </div>
+      <div class="bar" style="margin-top:12px"><button id="cclear">Clear creases</button></div>
+      <div class="readout" id="readout">drag across the shirt →</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const IMG_W=600, IMG_H=729, FW=100, FH=122;
+const img=new Image(); img.src='shirt/demo-front.png';
+const mask=new Float32Array(FW*FH);
+const field=new Float32Array(FW*FH), ghost=new Float32Array(FW*FH), tmp=new Float32Array(FW*FH);
+const noise=new Float32Array(FW*FH).map(()=>Math.random());
+const clamp=(x,a,b)=>x<a?a:x>b?b:x, smooth=(a,b,x)=>{x=clamp((x-a)/(b-a),0,1);return x*x*(3-2*x)};
+function sampleF(F,x,y){ // x,y in field coords
+  x=clamp(x,0,FW-1.001); y=clamp(y,0,FH-1.001);
+  const i=x|0,j=y|0,fx=x-i,fy=y-j,k=j*FW+i;
+  return (F[k]*(1-fx)+F[k+1]*fx)*(1-fy)+(F[k+FW]*(1-fx)+F[k+FW+1]*fx)*fy;
+}
+
+// ---------- marching squares ----------
+function contour(ctx,F,level,sx,sy){
+  for(let j=0;j<FH-1;j++)for(let i=0;i<FW-1;i++){
+    const k=j*FW+i,a=F[k],b=F[k+1],c=F[k+FW+1],d=F[k+FW];
+    const cs=(a>level)|((b>level)<<1)|((c>level)<<2)|((d>level)<<3);
+    if(cs===0||cs===15)continue;
+    const t=(p,q)=>(level-p)/(q-p);
+    const T=[(i+t(a,b))*sx,j*sy], R=[(i+1)*sx,(j+t(b,c))*sy], B=[(i+t(d,c))*sx,(j+1)*sy], L=[i*sx,(j+t(a,d))*sy];
+    const seg=(p,q)=>{ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);};
+    switch(cs){
+      case 1:case 14:seg(L,T);break; case 2:case 13:seg(T,R);break;
+      case 3:case 12:seg(L,R);break; case 4:case 11:seg(R,B);break;
+      case 6:case 9:seg(T,B);break;  case 7:case 8:seg(L,B);break;
+      case 5:seg(L,T);seg(R,B);break; case 10:seg(T,R);seg(L,B);break;
+    }
+  }
+}
+function peaks(F,min){
+  const out=[];
+  for(let j=3;j<FH-3;j+=2)for(let i=3;i<FW-3;i+=2){
+    const v=F[j*FW+i]; if(v<min)continue; let top=true;
+    for(let dj=-3;dj<=3&&top;dj++)for(let di=-3;di<=3;di++){if(F[(j+dj)*FW+i+di]>v){top=false;break;}}
+    if(top)out.push([i,j,v]);
+  }
+  return out;
+}
+
+// ---------- styles ----------
+const off=document.createElement('canvas'); off.width=FW; off.height=FH; const octx=off.getContext('2d'); const oimg=octx.createImageData(FW,FH);
+const hi=document.createElement('canvas'); hi.width=300; hi.height=364; const hctx=hi.getContext('2d'); const himg=hctx.createImageData(300,364);
+function blitField(ctx,fn,mode='multiply'){
+  const d=oimg.data;
+  for(let k=0;k<FW*FH;k++){const c=fn(k);d[k*4]=c[0];d[k*4+1]=c[1];d[k*4+2]=c[2];d[k*4+3]=c[3];}
+  octx.putImageData(oimg,0,0);
+  ctx.save();ctx.globalCompositeOperation=mode;ctx.imageSmoothingEnabled=true;ctx.drawImage(off,0,0,IMG_W,IMG_H);ctx.restore();
+}
+function drawGhost(ctx){
+  let any=false; for(let k=0;k<FW*FH;k+=7)if(ghost[k]>0.01){any=true;break;} if(!any)return;
+  blitField(ctx,k=>{const g=ghost[k]*mask[k];return [150,138,112,255*clamp(g*1.6,0,0.35)]});
+  ctx.save();ctx.strokeStyle='rgba(140,128,100,.35)';ctx.lineWidth=1;ctx.beginPath();contour(ctx,ghost,0.05,IMG_W/(FW-1),IMG_H/(FH-1));ctx.stroke();ctx.restore();
+}
+const lerp3=(stops,t)=>{ // stops: [[t,[r,g,b]],...]
+  if(t<=stops[0][0])return stops[0][1];
+  for(let s=1;s<stops.length;s++)if(t<=stops[s][0]){const [t0,c0]=stops[s-1],[t1,c1]=stops[s],u=(t-t0)/(t1-t0);return [c0[0]+(c1[0]-c0[0])*u,c0[1]+(c1[1]-c0[1])*u,c0[2]+(c1[2]-c0[2])*u];}
+  return stops[stops.length-1][1];
+};
+
+const SX=IMG_W/(FW-1), SY=IMG_H/(FH-1);
+const styles=[
+ { name:'1 · Survey ink', note:'Brown contour lines like a USGS map: every fifth line is heavier, and the peaks get spot heights. Quiet, precise, and the most clearly a "map".',
+   draw(ctx){
+     ctx.save();ctx.lineJoin='round';
+     for(let n=1;n<=16;n++){const lv=n*0.075;ctx.beginPath();contour(ctx,field,lv,SX,SY);
+       ctx.strokeStyle=n%5===0?'rgba(122,78,45,.95)':'rgba(122,78,45,.7)';ctx.lineWidth=n%5===0?2.4:1.1;ctx.stroke();}
+     ctx.fillStyle='#7A4E2D';ctx.font='600 15px "JetBrains Mono"';
+     for(const [i,j,v] of peaks(field,0.35)){const x=i*SX,y=j*SY;ctx.beginPath();ctx.moveTo(x-5,y-5);ctx.lineTo(x+5,y+5);ctx.moveTo(x+5,y-5);ctx.lineTo(x-5,y+5);ctx.strokeStyle='#7A4E2D';ctx.lineWidth=1.6;ctx.stroke();ctx.fillText(String(Math.round(v*420)),x+8,y-6);}
+     ctx.restore();
+   }},
+ { name:'2 · Stitched', note:'The land is sewn on in the same language as your duck and LUCKY letters: running stitches for contours, a gingham patch with a frayed edge for high ground, and yellow French knots on the peaks.',
+   draw(ctx){
+     // gingham patch above 0.5 with frayed edge
+     const d=himg.data, W=300,H=364, cell=7;
+     for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+       const f=sampleF(field,x/W*(FW-1),y/H*(FH-1)), k=(y*W+x)*4;
+       const fray=(Math.sin(x*1.7+y*0.3)*Math.sin(y*2.3)+1)*0.03;
+       if(f>0.5+fray){const a=((x/cell|0)&1),b=((y/cell|0)&1),s=a+b;
+         const c=s===2?[64,128,72]:s===1?[150,196,140]:[226,240,220];
+         d[k]=c[0];d[k+1]=c[1];d[k+2]=c[2];d[k+3]=255;}
+       else d[k+3]=0;
+     }
+     hctx.putImageData(himg,0,0);
+     ctx.save();ctx.shadowColor='rgba(0,0,0,.25)';ctx.shadowBlur=3;ctx.shadowOffsetY=1.5;ctx.drawImage(hi,0,0,IMG_W,IMG_H);ctx.restore();
+     ctx.save();ctx.lineCap='round';
+     const threads=[[0.12,'#C9B23A',[6,5]],[0.25,'#8DB255',[7,5]],[0.38,'#4F8A3C',[7,5]],[0.5,'#2F5E33',[5,4]],[0.75,'#2F5E33',[6,6]]];
+     for(const [lv,col,dash] of threads){
+       ctx.setLineDash(dash);ctx.beginPath();contour(ctx,field,lv,SX,SY);
+       ctx.strokeStyle='rgba(0,0,0,.28)';ctx.lineWidth=3.2;ctx.save();ctx.translate(0.8,1.4);ctx.stroke();ctx.restore();
+       ctx.strokeStyle=col;ctx.lineWidth=2.8;ctx.stroke();
+     }
+     ctx.setLineDash([]);
+     for(const [i,j] of peaks(field,0.8)){const x=i*SX,y=j*SY;
+       for(const [ox,oy] of [[0,0],[7,4],[-6,5],[2,-7]]){ctx.beginPath();ctx.arc(x+ox,y+oy,4.2,0,7);ctx.fillStyle='#E5C93B';ctx.fill();ctx.strokeStyle='rgba(90,70,10,.5)';ctx.lineWidth=1;ctx.stroke();
+         ctx.beginPath();ctx.arc(x+ox-1.2,y+oy-1.2,1.3,0,7);ctx.fillStyle='rgba(255,255,255,.7)';ctx.fill();}}
+     ctx.restore();
+   }},
+ { name:'3 · Lichen & moss', note:'No lines at all, only organisms. Pale lichen freckles show up first, then dense moss, and granite on the most-touched spots, like the boulders at Lincoln Woods. It reads as alive.',
+   dots:null,
+   draw(ctx){
+     if(!this.dots){this.dots=[];for(let n=0;n<9000;n++){const x=Math.random()*IMG_W,y=Math.random()*IMG_H;this.dots.push([x,y,Math.pow(Math.random(),1.4)*0.9+0.03,Math.random(),Math.random()]);}}
+     ctx.save();
+     for(const [x,y,thr,r1,r2] of this.dots){
+       const fx=x/IMG_W*(FW-1),fy=y/IMG_H*(FH-1); if(sampleF(mask,fx,fy)<0.5)continue;
+       const f=sampleF(field,fx,fy); if(f<thr)continue;
+       const grow=clamp((f-thr)*6,0,1);
+       let col,rad;
+       if(f>0.85&&r1<0.55){col=r2<0.5?'#8E8C86':'#B1AFA7';rad=3+r2*4;}
+       else if(f>0.4){col=['#4E7330','#6E8F3A','#3D5E2A','#7FA046'][r1*4|0];rad=1.6+r2*2.6;}
+       else {col=['#C8CC8A','#B7C46A','#D9D3A0','#A9B86A'][r1*4|0];rad=1.2+r2*2;}
+       ctx.globalAlpha=0.55+0.45*grow;ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,rad*grow+0.6,0,7);ctx.fill();
+     }
+     ctx.restore();
+   }},
+ { name:'4 · Relief tint', note:'The classic atlas look: elevation colors (green lowland, tan, brown, white summit), hillshading, and a blue coastline. The fabric weave still shows through, so it looks printed onto the cotton.',
+   draw(ctx){
+     const stops=[[0,[178,208,150]],[0.3,[214,214,150]],[0.55,[205,170,115]],[0.8,[160,122,92]],[1.0,[246,244,238]]];
+     blitField(ctx,k=>{const f=field[k]*mask[k]; if(f<0.02)return [255,255,255,0];
+       const i=k%FW,j=(k/FW)|0;const dx=field[k+(i<FW-1?1:0)]-field[k-(i>0?1:0)],dy=field[k+(j<FH-1?FW:0)]-field[k-(j>0?FW:0)];
+       const sh=clamp(1+(-dx-dy)*5,0.55,1.25);const c=lerp3(stops,f);
+       return [clamp(c[0]*sh,0,255),clamp(c[1]*sh,0,255),clamp(c[2]*sh,0,255),255*smooth(0.02,0.08,f)];});
+     ctx.save();ctx.beginPath();contour(ctx,field,0.04,SX,SY);ctx.strokeStyle='#3A6EA5';ctx.lineWidth=1.6;ctx.stroke();
+     ctx.beginPath();contour(ctx,field,0.012,SX,SY);ctx.strokeStyle='rgba(58,110,165,.35)';ctx.setLineDash([3,4]);ctx.lineWidth=1;ctx.stroke();ctx.restore();
+   }},
+ { name:'5 · Stain bloom', note:'Land shows up as real stains: tea, grass and mud bleeding into the cotton, with dark tide-line rims at each growth stage. It is the closest to what the hike will actually do to your shirt, and it pairs naturally with the wash.',
+   draw(ctx){
+     blitField(ctx,k=>{const f=field[k]*mask[k]; if(f<0.01)return [255,255,255,0];
+       const band=(f*5)%1, rim=smooth(0.78,0.98,band)*(1-smooth(0.98,1,band))*0.55;
+       const base=lerp3([[0,[176,128,78]],[0.45,[120,128,60]],[0.9,[70,62,40]]],f);
+       const a=clamp(smooth(0.01,0.25,f)*0.42*(0.8+noise[k]*0.4)+rim,0,0.9);
+       return [base[0]*(1-rim*0.6),base[1]*(1-rim*0.6),base[2]*(1-rim*0.6),255*a];});
+   }},
+];
+
+// ---------- panels ----------
+const grid=document.getElementById('grid'), panels=[];
+styles.forEach(s=>{
+  const card=document.createElement('div');card.className='card';
+  const cv=document.createElement('canvas');cv.width=IMG_W;cv.height=IMG_H;
+  card.append(cv);
+  const t=document.createElement('div');t.className='tag';t.textContent=s.name;
+  const p=document.createElement('p');p.className='note';p.textContent=s.note;
+  card.append(t,p);grid.append(card);
+  panels.push({cv,ctx:cv.getContext('2d'),s});
+  bindPointer(cv,(fx,fy,down)=>{pointer.x=fx;pointer.y=fy;pointer.down=down;});
+});
+const pointer={x:0,y:0,down:false};
+function bindPointer(cv,cb){
+  const pos=e=>{const r=cv.getBoundingClientRect();return [(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height];};
+  cv.addEventListener('pointerdown',e=>{try{cv.setPointerCapture(e.pointerId)}catch(_){}const [x,y]=pos(e);cb(x,y,true,'down');});
+  cv.addEventListener('pointermove',e=>{const [x,y]=pos(e);cb(x,y,e.buttons>0,'move');});
+  cv.addEventListener('pointerup',e=>{const [x,y]=pos(e);cb(x,y,false,'up');});
+  cv.addEventListener('pointercancel',e=>{cb(0,0,false,'up');});
+}
+function deposit(u,v,amt,r=5.5){
+  const cx=u*(FW-1),cy=v*(FH-1),R=Math.ceil(r*2.5);
+  for(let j=Math.max(0,cy-R|0);j<Math.min(FH,cy+R+1);j++)for(let i=Math.max(0,cx-R|0);i<Math.min(FW,cx+R+1);i++){
+    const d2=(i-cx)**2+(j-cy)**2;const k=j*FW+i;field[k]=Math.min(1.25,field[k]+amt*Math.exp(-d2/(2*r*r))*mask[k]);
+  }
+}
+// sprawl: slow diffusion + slow uplift where land already exists
+function sprawl(dt){
+  tmp.set(field);
+  for(let j=1;j<FH-1;j++)for(let i=1;i<FW-1;i++){
+    const k=j*FW+i, f=tmp[k]; const lap=tmp[k-1]+tmp[k+1]+tmp[k-FW]+tmp[k+FW]-4*f;
+    let n=f+lap*0.9*dt; if(f>0.03)n+=dt*0.025*(1-f/1.1)*(0.6+noise[k]*0.8);
+    field[k]=clamp(n,0,1.25)*mask[k];
+  }
+}
+
+// ---------- wash ----------
+let wash=null;
+document.getElementById('wash').onclick=()=>{if(wash)return;wash={t:0,f0:Float32Array.from(field)};};
+document.getElementById('clear').onclick=()=>{field.fill(0);ghost.fill(0);};
+document.getElementById('seed').onclick=()=>{for(let n=0;n<6;n++){const u=0.2+Math.random()*0.6,v=0.25+Math.random()*0.6;deposit(u,v,0.35+Math.random()*0.6,4+Math.random()*4);}};
+function washStep(dt){
+  wash.t+=dt/2.4; const t=Math.min(1,wash.t), cx=(FW-1)/2, cy=(FH-1)*0.55;
+  const fade=1-smooth(0.15,0.95,t);
+  for(let j=0;j<FH;j++)for(let i=0;i<FW;i++){
+    const dx=i-cx,dy=j-cy,r=Math.hypot(dx,dy),a=-t*t*Math.PI*2.2*(1.3-r/80);
+    const sx=cx+dx*Math.cos(a)-dy*Math.sin(a),sy=cy+dx*Math.sin(a)+dy*Math.cos(a);
+    field[j*FW+i]=sampleF(wash.f0,sx,sy)*fade*mask[j*FW+i];
+  }
+  if(t>=1){for(let k=0;k<FW*FH;k++)ghost[k]=Math.min(0.6,ghost[k]*0.85+wash.f0[k]*0.22);field.fill(0);wash=null;}
+}
+
+// ---------- crease demo ----------
+const cc=document.getElementById('cc'), cctx=cc.getContext('2d');
+const crLive=new Float32Array(FW*FH), crPerm=new Float32Array(FW*FH), crView=new Float32Array(FW*FH);
+let mode='instant', drag=null, pending=[], flashes=[], creaseLines=[];
+document.querySelectorAll('.mode').forEach(b=>b.onclick=()=>{document.querySelectorAll('.mode').forEach(x=>x.classList.remove('on'));b.classList.add('on');mode=b.dataset.m;});
+document.getElementById('cclear').onclick=()=>{crLive.fill(0);crPerm.fill(0);pending=[];creaseLines=[];};
+const readout=document.getElementById('readout');
+bindPointer(cc,(u,v,down,ev)=>{
+  if(ev==='down')drag={a:[u,v],b:[u,v]};
+  else if(ev==='move'&&drag)drag.b=[u,v];
+  else if(ev==='up'&&drag){const L=Math.hypot(drag.b[0]-drag.a[0],drag.b[1]-drag.a[1]);if(L>0.08)fold(drag.a,drag.b);drag=null;}
+});
+function addRidge(F,a,b,amt,prog=1){ // ridge along segment, revealed from the middle outward by prog
+  const ax=a[0]*(FW-1),ay=a[1]*(FH-1),bx=b[0]*(FW-1),by=b[1]*(FH-1),vx=bx-ax,vy=by-ay,L2=vx*vx+vy*vy,s=2.2;
+  for(let k=0;k<FW*FH;k++){if(!mask[k])continue;const i=k%FW,j=(k/FW)|0;
+    let t=((i-ax)*vx+(j-ay)*vy)/L2; if(Math.abs(t-0.5)>prog*0.5)continue; t=clamp(t,0,1);
+    const d2=(i-ax-t*vx)**2+(j-ay-t*vy)**2; F[k]=Math.min(1.4,F[k]+amt*Math.exp(-d2/(2*s*s)));}
+}
+function fold(a,b){
+  const now=performance.now();
+  flashes.push({a,b,t0:now});
+  let msg;
+  if(mode==='instant'){addRidge(crPerm,a,b,0.5);msg='crease registered in 0 ms';}
+  else if(mode==='seep'){pending.push({a,b,t0:now,done:0});msg='ink seeping in over 1.5 s…';}
+  else{
+    // count earlier folds along roughly the same line
+    const near=creaseLines.filter(c=>{const d=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1]);return Math.min(d(c.a,a)+d(c.b,b),d(c.a,b)+d(c.b,a))<0.12;}).length;
+    addRidge(crLive,a,b,0.32);addRidge(crPerm,a,b,0.05+0.04*near);
+    msg=near?`same fold ×${near+1}: crease deepening`:'faint crease, relaxes unless repeated';
+  }
+  creaseLines.push({a,b});readout.textContent=msg;
+}
+function creaseStep(dt){
+  const now=performance.now();
+  for(const p of pending){const prog=clamp((now-p.t0)/1500,0,1);const e=1-Math.pow(1-prog,3);
+    // incremental: add the difference between eased amounts
+    const amt=0.5*(e-p.done); if(amt>0){addRidge(crPerm,p.a,p.b,amt,e);p.done=e;}}
+  pending=pending.filter(p=>p.done<1);
+  const decay=Math.pow(0.5,dt/20); for(let k=0;k<FW*FH;k++){crLive[k]*=decay;crView[k]=crLive[k]+crPerm[k];}
+}
+function drawCrease(){
+  const ctx=cctx;ctx.clearRect(0,0,IMG_W,IMG_H);ctx.drawImage(img,0,0,IMG_W,IMG_H);
+  const now=performance.now();
+  // fold flash: the folded half darkens for a moment
+  for(const f of flashes){const t=(now-f.t0)/450;if(t>1)continue;
+    const [ax,ay]=[f.a[0]*IMG_W,f.a[1]*IMG_H],[bx,by]=[f.b[0]*IMG_W,f.b[1]*IMG_H];const nx=-(by-ay),ny=bx-ax,s=2000/Math.hypot(nx,ny);
+    ctx.save();ctx.beginPath();ctx.moveTo(ax-(bx-ax)*3,ay-(by-ay)*3);ctx.lineTo(bx+(bx-ax)*3,by+(by-ay)*3);ctx.lineTo(bx+(bx-ax)*3+nx*s,by+(by-ay)*3+ny*s);ctx.lineTo(ax-(bx-ax)*3+nx*s,ay-(by-ay)*3+ny*s);ctx.closePath();
+    ctx.globalCompositeOperation='multiply';ctx.fillStyle=`rgba(60,70,90,${0.35*(1-t)})`;ctx.fill();ctx.restore();}
+  flashes=flashes.filter(f=>now-f.t0<450);
+  // physical crease: light/dark line pair
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  ctx.beginPath();contour(ctx,crView,0.18,SX,SY);ctx.strokeStyle='rgba(90,95,110,.25)';ctx.lineWidth=3;ctx.stroke();ctx.restore();
+  // map reading
+  ctx.save();
+  for(let n=1;n<=14;n++){const lv=n*0.09;ctx.beginPath();contour(ctx,crView,lv,SX,SY);ctx.strokeStyle=n%5===0?'rgba(122,78,45,.95)':'rgba(122,78,45,.6)';ctx.lineWidth=n%5===0?2.2:1;ctx.stroke();}
+  ctx.fillStyle='#7A4E2D';ctx.font='600 15px "JetBrains Mono"';
+  for(const [i,j,v] of peaks(crView,0.7)){ctx.fillText('▲ '+Math.round(v*420),i*SX+6,j*SY-6);}
+  ctx.restore();
+  if(drag){ctx.save();ctx.setLineDash([8,6]);ctx.strokeStyle='#2A4A8C';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(drag.a[0]*IMG_W,drag.a[1]*IMG_H);ctx.lineTo(drag.b[0]*IMG_W,drag.b[1]*IMG_H);ctx.stroke();ctx.restore();}
+}
+
+// ---------- loop ----------
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(wash)washStep(dt);
+  else{ if(pointer.down)deposit(pointer.x,pointer.y,dt*0.9); sprawl(dt); }
+  for(const p of panels){const ctx=p.ctx;ctx.clearRect(0,0,IMG_W,IMG_H);ctx.drawImage(img,0,0,IMG_W,IMG_H);drawGhost(ctx);p.s.draw(ctx);
+    if(wash){ctx.save();ctx.globalCompositeOperation='multiply';ctx.fillStyle=`rgba(200,225,240,${0.5*Math.sin(Math.PI*Math.min(1,wash.t))})`;ctx.fillRect(0,0,IMG_W,IMG_H);ctx.restore();}
+    // keep the land on the cloth
+    ctx.save();ctx.globalCompositeOperation='destination-in';ctx.drawImage(img,0,0,IMG_W,IMG_H);ctx.restore();}
+  creaseStep(dt);drawCrease();
+  requestAnimationFrame(frame);
+}
+img.onload=()=>{
+  const c=document.createElement('canvas');c.width=FW;c.height=FH;const x=c.getContext('2d');x.drawImage(img,0,0,FW,FH);
+  const d=x.getImageData(0,0,FW,FH).data;for(let k=0;k<FW*FH;k++)mask[k]=d[k*4+3]>200?1:0;
+  requestAnimationFrame(frame);
+};
+</script>
+</body>
+</html>
